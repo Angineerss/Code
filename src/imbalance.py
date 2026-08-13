@@ -140,11 +140,12 @@ def build_imbalance_bars(
     ticks: pd.DataFrame,
     config: PipelineConfig,
     seed: ImbalanceSeed | None = None,
+    initial_state: EwmaState | None = None,
 ) -> tuple[pd.DataFrame, EwmaState]:
     """Sample bars when |signed flow| exceeds expected imbalance.
 
-    The first ``init_T`` ticks are a warmup window: they seed ``E[size]`` and
-    leave ``b = init_b``. Later bars EWMA-update T, b, and size.
+    The first ``init_T`` ticks are a warmup window unless ``initial_state``
+    already has a finite E[size] from a previous day.
     """
     empty_state = EwmaState(
         expected_ticks=float(config.initial_expected_ticks),
@@ -169,12 +170,17 @@ def build_imbalance_bars(
         else np.nan
     )
     expected_imbalance = float(seed.expected_imbalance) if seed is not None else np.nan
+    warmed = False
+    if initial_state is not None and np.isfinite(initial_state.expected_size):
+        expected_ticks = float(initial_state.expected_ticks)
+        b = float(initial_state.b)
+        expected_size = float(initial_state.expected_size)
+        warmed = True
     theta = 0.0
     start = 0
     n_ticks = 0
     buy_ticks = 0
     size_sum = 0.0
-    warmed = False
     rows: list[list[object]] = []
 
     def afml_theta() -> float:
@@ -261,5 +267,6 @@ def build_bars(
     ticks: pd.DataFrame,
     config: PipelineConfig,
     seed: ImbalanceSeed | None = None,
+    initial_state: EwmaState | None = None,
 ) -> tuple[pd.DataFrame, EwmaState]:
-    return build_imbalance_bars(ticks, config, seed=seed)
+    return build_imbalance_bars(ticks, config, seed=seed, initial_state=initial_state)

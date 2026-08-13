@@ -45,7 +45,7 @@ class PriorYearNotional:
 
 
 def prior_year_window(as_of: date, lookback_days: int = 365) -> tuple[date, date]:
-    """UTC window [as_of - lookback_days, as_of - 1d], excluding the as-of day."""
+    """Sliding UTC window ending yesterday: [as_of - lookback, as_of - 1d]."""
     if lookback_days < 1:
         raise ValueError("lookback_days must be >= 1")
     return as_of - timedelta(days=lookback_days), as_of - timedelta(days=1)

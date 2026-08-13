@@ -1,4 +1,4 @@
-from src.imbalance import build_imbalance_bars
+from src.imbalance import ImbalanceSeed, build_imbalance_bars
 from tests.helpers import make_ticks, tight_config
 
 
@@ -83,3 +83,24 @@ def test_warmup_bar_keeps_init_b():
     assert (bars["close_reason"] == "warmup").any()
     assert state.b == 0.5
     assert bars.iloc[0]["tick_count"] == 30
+
+
+def test_initial_state_skips_warmup_and_uses_new_d():
+    ticks = make_ticks(n=80, buy_prob=1.0, qty=1.0)
+    config = tight_config(bar_type="dollar_imbalance", initial_expected_ticks=20, max_ticks=25)
+    first, state = build_imbalance_bars(
+        ticks.iloc[:40],
+        config,
+        seed=ImbalanceSeed(expected_imbalance=50.0, expected_size=100.0),
+    )
+    assert (first["close_reason"] == "warmup").any()
+    next_seed = ImbalanceSeed(expected_imbalance=999.0)
+    second, _ = build_imbalance_bars(
+        ticks.iloc[40:],
+        config,
+        seed=next_seed,
+        initial_state=state,
+    )
+    assert "warmup" not in set(second["close_reason"])
+    assert second.iloc[0]["threshold"] == 999.0
+    assert state.expected_size > 0

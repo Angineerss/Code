@@ -23,7 +23,7 @@
 
 | 단계 | 결정 |
 | --- | --- |
-| 바 | **달러 불균형 바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50` 이 `E[θ]` 초기값. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫 `init_T` 틱은 EWMA 워밍업(라벨 제외), 이후 바는 CUSUM·트리플 베리어 학습 진행 |
+| 바 | **달러 불균형 바**. `D = (슬라이딩 365 UTC일 일별 quote 거래대금 평균) / 50`. 창은 **어제까지** (`[as_of-365, as_of-1]`), 당일은 제외. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫날만 `init_T` 틱 EWMA 워밍업(라벨 제외). 다음 날부터는 전날 `ewma_state.json`을 이어받고 워밍업 바를 건너뜀. `D`는 그날의 슬라이딩 창으로 다시 잡음 |
 | Primary | 규칙 기반. CUSUM 방향 = `side ∈ {+1,-1}` |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
 | 이벤트 | 불균형 바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ`. `--event-mode every_bar`면 바마다 이벤트 |
@@ -31,7 +31,7 @@
 | Meta 타깃 | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치 |
 | Meta 모델 | Random Forest (이 레포는 라벨까지) |
 
-바이낸스 `BTCUSDT`는 2017년에 상장되어 **2014-01-15 기준 1년은 존재하지 않습니다.** 기준일은 틱 데이터의 UTC 날짜입니다. 예: `--date 2024-01-15` → 평균 구간 `2023-01-15` ~ `2024-01-14`.
+바이낸스 `BTCUSDT`는 2017년에 상장되어 **2014-01-15 기준 1년은 존재하지 않습니다.** 기준일은 틱 데이터의 UTC 날짜입니다. 예: `--date 2024-01-16` → 평균 구간 `2023-01-16` ~ `2024-01-15` (고정 연도가 아니라 어제에서 끝나는 슬라이딩 365일).
 
 ### 검증
 
@@ -45,9 +45,10 @@
 ```text
 Binance aggTrades
   → aggressor-signed ticks
-  → first init_T=20,000 ticks seed E[size], b stays 0.5 (not labeled)
+  → day 1: first init_T=20,000 ticks seed E[size], b stays 0.5 (not labeled)
+  → later days: load previous ewma_state.json (skip warmup bar)
   → bars capped at max_ticks=50,000
-  → D = prior 365d average daily quote notional / 50
+  → D = sliding 365d average daily quote notional ending yesterday / 50
   → dollar imbalance bars, EWMA updates T/b/size
   → CUSUM (h = 0.1σ) + triple-barrier labels on post-warmup bars
   → CPCV
@@ -59,6 +60,7 @@ Binance aggTrades
 pip install -r requirements.txt
 pytest
 python -m src --symbol BTCUSDT --date 2024-01-15
+python -m src --symbol BTCUSDT --date 2024-01-16
 python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
 ```
 
@@ -66,4 +68,5 @@ python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
 
 - `{SYMBOL}_{day}_bars.csv`
 - `{SYMBOL}_{day}_labels.csv`
+- `{SYMBOL}_{day}_ewma_state.json` (다음 날 EWMA 이어받기)
 - `{SYMBOL}_{day}_summary.json`

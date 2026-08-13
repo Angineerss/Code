@@ -16,6 +16,22 @@ def test_prior_year_window_excludes_as_of_day():
     assert end == date(2024, 1, 14)
 
 
+def test_prior_year_window_slides_through_yesterday():
+    start, end = prior_year_window(date(2024, 1, 16), lookback_days=365)
+    assert start == date(2023, 1, 16)
+    assert end == date(2024, 1, 15)
+
+
+def test_resolve_ewma_state_defaults_to_previous_day(tmp_path):
+    from src.pipeline import resolve_ewma_state_path
+
+    prev = tmp_path / "BTCUSDT_2024-01-15_ewma_state.json"
+    prev.write_text("{}")
+    path = resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 16))
+    assert path == prev
+    assert resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 17)) is None
+
+
 def test_imbalance_threshold_is_one_fiftieth_of_prior_year_average():
     assert threshold_from_average(1_000_000.0, 50) == 20_000.0
 

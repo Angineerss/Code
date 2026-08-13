@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from .barriers import apply_triple_barrier
@@ -17,8 +17,13 @@ from .download import load_or_download_day
 from .imbalance import EwmaState, ImbalanceSeed, build_bars, daily_quote_volume
 
 
-def run_from_ticks(ticks, config: PipelineConfig, seed: ImbalanceSeed | None = None):
-    bars, state = build_bars(ticks, config, seed=seed)
+def run_from_ticks(
+    ticks,
+    config: PipelineConfig,
+    seed: ImbalanceSeed | None = None,
+    initial_state: EwmaState | None = None,
+):
+    bars, state = build_bars(ticks, config, seed=seed, initial_state=initial_state)
     if config.session == "warmup":
         empty = bars.iloc[0:0]
         return bars, empty, empty, [], state
@@ -27,6 +32,27 @@ def run_from_ticks(ticks, config: PipelineConfig, seed: ImbalanceSeed | None = N
     labeled = apply_triple_barrier(usable, events, config)
     splits = list(cpcv_splits(labeled, config))
     return bars, events, labeled, splits, state
+
+
+def load_ewma_state(path: Path) -> EwmaState:
+    payload = json.loads(path.read_text())
+    return EwmaState(
+        expected_ticks=float(payload["expected_ticks"]),
+        b=float(payload["b"]),
+        expected_size=float(payload["expected_size"]),
+        expected_imbalance=float(payload.get("expected_imbalance", float("nan"))),
+    )
+
+
+def resolve_ewma_state_path(dest: Path, symbol: str, day: date, explicit: str | None = None) -> Path | None:
+    """Previous UTC day's saved EWMA, or an explicit path. Missing default is None."""
+    if explicit:
+        path = Path(explicit)
+        if not path.exists():
+            raise FileNotFoundError(f"EWMA state not found: {path}")
+        return path
+    candidate = dest / f"{symbol}_{day - timedelta(days=1)}_ewma_state.json"
+    return candidate if candidate.exists() else None
 
 
 def _median(series) -> float | None:
@@ -96,6 +122,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
     parser.add_argument("--session", default="research", choices=("warmup", "research"))
+    parser.add_argument(
+        "--ewma-state",
+        default=None,
+        help="Previous day's ewma_state.json; default = data/{symbol}_{date-1}_ewma_state.json",
+    )
     args = parser.parse_args(argv)
 
     config = PipelineConfig(
@@ -108,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     dest = Path(args.data_dir)
     day = date.fromisoformat(args.date) if args.date else None
     ticks, day = load_or_download_day(config.symbol, dest, config.market, day)
+
+    state_path = resolve_ewma_state_path(dest, config.symbol, day, args.ewma_state)
+    initial_state = None if state_path is None else load_ewma_state(state_path)
 
     prior = None
     seed = None
@@ -123,7 +157,9 @@ def main(argv: list[str] | None = None) -> int:
             expected_imbalance=prior.threshold,
             expected_size=prior.expected_size,
         )
-    bars, events, labeled, splits, state = run_from_ticks(ticks, config, seed=seed)
+    bars, events, labeled, splits, state = run_from_ticks(
+        ticks, config, seed=seed, initial_state=initial_state
+    )
 
     dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
@@ -135,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = _summarize(bars, events, labeled, splits, config, day, ticks, prior, state)
     summary["n_ticks"] = int(len(ticks))
+    summary["ewma_state_loaded_from"] = None if state_path is None else str(state_path)
+    summary["ewma_continued"] = initial_state is not None
     print(json.dumps(summary, indent=2, default=str))
     (dest / f"{config.symbol}_{day}_summary.json").write_text(
         json.dumps(summary, indent=2, default=str)
