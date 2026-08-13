@@ -76,7 +76,17 @@ def test_every_bar_events_follow_order_flow():
     assert set(events["side"].unique()) == {1}
 
 
-def test_warmup_session_does_not_label():
+def test_research_session_labels_after_warmup():
+    ticks = make_ticks(n=200, buy_prob=1.0)
+    bars, events, labeled, splits, _state = run_from_ticks(
+        ticks, tight_config(session="research", bar_type="tick_imbalance", event_mode="every_bar")
+    )
+    assert (bars["close_reason"] == "warmup").any()
+    assert not labeled.empty
+    assert len(labeled) == (bars["close_reason"] != "warmup").sum()
+
+
+def test_explicit_warmup_session_skips_labels():
     ticks = make_ticks(n=120, buy_prob=1.0)
     bars, events, labeled, splits, state = run_from_ticks(
         ticks, tight_config(session="warmup", bar_type="tick_imbalance", initial_expected_ticks=40)

@@ -28,7 +28,7 @@ class PipelineConfig:
     imbalance_ewma_span: int = 50
     initial_expected_ticks: int = 500_000  # init_T
     init_b: float = 0.5  # P[buy] seed; |2b-1| starts at 0
-    session: SessionType = "warmup"
+    session: SessionType = "research"
     min_abs_2p1: float = 0.05
     max_abs_2p1: float = 0.15
     max_ticks_mult: float = 4.0

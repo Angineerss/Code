@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
     )
     parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
-    parser.add_argument("--session", default="warmup", choices=("warmup", "research"))
+    parser.add_argument("--session", default="research", choices=("warmup", "research"))
     args = parser.parse_args(argv)
 
     config = PipelineConfig(
