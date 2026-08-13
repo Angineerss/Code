@@ -36,6 +36,8 @@ def make_ticks(
 def tight_config(**kwargs) -> PipelineConfig:
     defaults = dict(
         initial_expected_ticks=20,
+        init_b=0.5,
+        session="research",
         imbalance_ewma_span=10,
         cusum_mode="absolute",
         cusum_absolute_h=0.01,

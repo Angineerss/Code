@@ -8,6 +8,7 @@ from typing import Literal
 BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
+SessionType = Literal["warmup", "research"]
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,9 @@ class PipelineConfig:
     imbalance_divisor: int = 50
     imbalance_lookback_days: int = 365
     imbalance_ewma_span: int = 50
-    initial_expected_ticks: int = 80  # fallback if prior-year trade counts are missing
+    initial_expected_ticks: int = 500_000  # init_T
+    init_b: float = 0.5  # P[buy] seed; |2b-1| starts at 0
+    session: SessionType = "warmup"
     min_abs_2p1: float = 0.05
     max_abs_2p1: float = 0.15
     max_ticks_mult: float = 4.0

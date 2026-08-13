@@ -51,10 +51,10 @@ def test_dollar_imbalance_uses_seeded_prior_year_threshold():
     ticks = make_ticks(n=400, buy_prob=1.0, qty=1.0)
     d = float(ticks["quote_qty"].sum()) / 8
     config = tight_config(bar_type="dollar_imbalance", initial_expected_ticks=15)
-    bars = build_imbalance_bars(
+    bars, _state = build_imbalance_bars(
         ticks,
         config,
-        seed=ImbalanceSeed(expected_imbalance=d, init_t=15, expected_size=100.0),
+        seed=ImbalanceSeed(expected_imbalance=d, expected_size=100.0),
     )
     assert len(bars) >= 2
     assert set(bars["close_reason"]).issubset({"warmup", "imbalance", "max_ticks"})

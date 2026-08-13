@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
@@ -13,15 +14,19 @@ from .cpcv import cpcv_splits
 from .cusum import select_events
 from .daily_notional import PriorYearNotional, prior_year_notional
 from .download import load_or_download_day
-from .imbalance import ImbalanceSeed, build_bars, daily_quote_volume
+from .imbalance import EwmaState, ImbalanceSeed, build_bars, daily_quote_volume
 
 
 def run_from_ticks(ticks, config: PipelineConfig, seed: ImbalanceSeed | None = None):
-    bars = build_bars(ticks, config, seed=seed)
-    events = select_events(bars, config)
-    labeled = apply_triple_barrier(bars, events, config)
+    bars, state = build_bars(ticks, config, seed=seed)
+    if config.session == "warmup":
+        empty = bars.iloc[0:0]
+        return bars, empty, empty, [], state
+    usable = bars.loc[bars["close_reason"] != "warmup"].reset_index(drop=True)
+    events = select_events(usable, config)
+    labeled = apply_triple_barrier(usable, events, config)
     splits = list(cpcv_splits(labeled, config))
-    return bars, events, labeled, splits
+    return bars, events, labeled, splits, state
 
 
 def _median(series) -> float | None:
@@ -40,23 +45,26 @@ def _summarize(
     day: date | None,
     ticks=None,
     prior: PriorYearNotional | None = None,
+    state: EwmaState | None = None,
 ) -> dict:
     close_reasons = None if bars.empty or "close_reason" not in bars else bars["close_reason"].value_counts().to_dict()
     daily_notional = None if ticks is None else daily_quote_volume(ticks)
     return {
         "symbol": config.symbol,
         "day": None if day is None else day.isoformat(),
+        "session": config.session,
         "bar_type": config.bar_type,
+        "init_t": config.initial_expected_ticks,
+        "init_b": config.init_b,
         "imbalance_divisor": config.imbalance_divisor,
         "imbalance_lookback_days": config.imbalance_lookback_days,
         "prior_year_start": None if prior is None else prior.start.isoformat(),
         "prior_year_end": None if prior is None else prior.end.isoformat(),
         "prior_year_n_days": None if prior is None else prior.n_days,
         "prior_year_avg_daily_notional": None if prior is None else prior.average_daily_notional,
-        "prior_year_avg_daily_trades": None if prior is None else prior.average_daily_trades,
-        "init_t": None if prior is None else prior.init_t,
         "as_of_day_quote_notional": daily_notional,
         "imbalance_threshold_d": None if prior is None else prior.threshold,
+        "ewma_state": None if state is None else asdict(state),
         "event_mode": config.event_mode,
         "cusum_k": config.cusum_k,
         "n_bars": int(len(bars)),
@@ -86,12 +94,14 @@ def main(argv: list[str] | None = None) -> int:
         choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
     )
     parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
+    parser.add_argument("--session", default="warmup", choices=("warmup", "research"))
     args = parser.parse_args(argv)
 
     config = PipelineConfig(
         symbol=args.symbol.upper(),
         bar_type=args.bar_type,
         event_mode=args.event_mode,
+        session=args.session,
         primary_type="rule_bar_flow_sign" if args.event_mode == "every_bar" else "rule_cusum_sign",
     )
     dest = Path(args.data_dir)
@@ -110,16 +120,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         seed = ImbalanceSeed(
             expected_imbalance=prior.threshold,
-            init_t=prior.init_t or config.initial_expected_ticks,
             expected_size=prior.expected_size,
         )
-    bars, events, labeled, splits = run_from_ticks(ticks, config, seed=seed)
+    bars, events, labeled, splits, state = run_from_ticks(ticks, config, seed=seed)
 
     dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
-    labeled.to_csv(dest / f"{config.symbol}_{day}_labels.csv", index=False)
+    (dest / f"{config.symbol}_{day}_ewma_state.json").write_text(
+        json.dumps(asdict(state), indent=2)
+    )
+    if config.session != "warmup":
+        labeled.to_csv(dest / f"{config.symbol}_{day}_labels.csv", index=False)
 
-    summary = _summarize(bars, events, labeled, splits, config, day, ticks, prior)
+    summary = _summarize(bars, events, labeled, splits, config, day, ticks, prior, state)
     summary["n_ticks"] = int(len(ticks))
     print(json.dumps(summary, indent=2, default=str))
     (dest / f"{config.symbol}_{day}_summary.json").write_text(

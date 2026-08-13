@@ -23,7 +23,7 @@
 
 | 단계 | 결정 |
 | --- | --- |
-| 바 | **달러 불균형 바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50` 이 `E[θ]` 초기 임계값. 기준일 당일 제외. `init_T = 직전 1년 평균 일 체결수 / 50` |
+| 바 | **달러 불균형 바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50` 이 `E[θ]` 초기값. `init_T = 500,000`, `init_b = 0.5`. 현재 하루치 틱은 **워밍업 세션** (라벨/학습 없음, EWMA 상태만 저장) |
 | Primary | 규칙 기반. CUSUM 방향 = `side ∈ {+1,-1}` |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
 | 이벤트 | 불균형 바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ`. `--event-mode every_bar`면 바마다 이벤트 |
@@ -43,13 +43,12 @@
 ## 파이프라인
 
 ```text
-Binance aggTrades (1 UTC day)
+Binance aggTrades (warmup session)
   → aggressor-signed ticks
+  → first init_T=500,000 ticks seed E[size], b stays 0.5
   → D = prior 365d average daily quote notional / 50
-  → dollar imbalance bars (|signed quote flow| vs EWMA E[θ] seeded at D)
-  → CUSUM events (h = 0.1σ)
-  → triple-barrier meta labels
-  → CPCV paths (purge + embargo)
+  → dollar imbalance bars, EWMA updates T/b/size
+  → save ewma_state.json (no CUSUM labels)
 ```
 
 ## 실행
@@ -57,8 +56,8 @@ Binance aggTrades (1 UTC day)
 ```bash
 pip install -r requirements.txt
 pytest
-python -m src --symbol BTCUSDT --date 2024-01-15
-python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
+python -m src --symbol BTCUSDT --date 2024-01-15 --session warmup
+python -m src --symbol BTCUSDT --date 2024-01-15 --session research
 ```
 
 산출물 (`data/`):

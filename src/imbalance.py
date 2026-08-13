@@ -30,14 +30,18 @@ BAR_COLUMNS = [
 
 @dataclass(frozen=True)
 class ImbalanceSeed:
-    """Prior-year scale for dollar imbalance bars.
-
-    ``expected_imbalance`` is D = mean(prior 1y daily quote notional) / 50.
-    """
+    """Prior-year D = mean(daily quote notional) / 50 for dollar imbalance."""
 
     expected_imbalance: float
-    init_t: int
     expected_size: float | None = None
+
+
+@dataclass(frozen=True)
+class EwmaState:
+    expected_ticks: float
+    b: float
+    expected_size: float
+    expected_imbalance: float
 
 
 @dataclass(frozen=True)
@@ -136,29 +140,34 @@ def build_imbalance_bars(
     ticks: pd.DataFrame,
     config: PipelineConfig,
     seed: ImbalanceSeed | None = None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, EwmaState]:
     """Sample bars when |signed flow| exceeds expected imbalance.
 
-    Expected imbalance follows AFML: ``E[T] * |2P[buy]-1| * E[size]``.
-    For dollar imbalance, E[θ] is seeded at D = prior-year average daily
-    notional / 50 and clipped around that scale so it cannot run away.
+    The first ``init_T`` ticks are a warmup window: they seed ``E[size]`` and
+    leave ``b = init_b``. Later bars EWMA-update T, b, and size.
     """
+    empty_state = EwmaState(
+        expected_ticks=float(config.initial_expected_ticks),
+        b=float(config.init_b),
+        expected_size=float("nan"),
+        expected_imbalance=float("nan") if seed is None else float(seed.expected_imbalance),
+    )
     if ticks.empty:
-        return _empty_bars()
+        return _empty_bars(), empty_state
 
     arrays = _tick_arrays(ticks)
     flow = _signed_flow(arrays.price, arrays.qty, arrays.side, config.bar_type)
     abs_flow = np.abs(flow)
     alpha = 2.0 / (config.imbalance_ewma_span + 1.0)
 
-    init_t = int(seed.init_t) if seed is not None else int(config.initial_expected_ticks)
+    init_t = int(config.initial_expected_ticks)
     expected_ticks = float(init_t)
+    b = float(config.init_b)
     expected_size = (
         float(seed.expected_size)
         if seed is not None and seed.expected_size is not None
         else np.nan
     )
-    expected_2p1 = np.nan
     expected_imbalance = float(seed.expected_imbalance) if seed is not None else np.nan
     theta = 0.0
     start = 0
@@ -168,13 +177,18 @@ def build_imbalance_bars(
     warmed = False
     rows: list[list[object]] = []
 
+    def afml_theta() -> float:
+        frac = abs(2.0 * b - 1.0)
+        frac = _clip_imbalance_frac(frac, config) if frac > 0 else config.min_abs_2p1
+        size = expected_size if np.isfinite(expected_size) else 1.0
+        return expected_ticks * frac * size
+
     def threshold_now() -> float:
         if not warmed:
             return float("inf")
         if seed is not None and np.isfinite(expected_imbalance):
             return float(expected_imbalance)
-        frac = _clip_imbalance_frac(expected_2p1, config)
-        return expected_ticks * frac * expected_size
+        return afml_theta()
 
     for i in range(len(flow)):
         theta += flow[i]
@@ -195,7 +209,7 @@ def build_imbalance_bars(
             continue
 
         mean_size = size_sum / n_ticks
-        raw_2p1 = abs(2.0 * (buy_ticks / n_ticks) - 1.0)
+        buy_frac = buy_ticks / n_ticks
         rows.append(
             _bar_row(
                 arrays,
@@ -208,17 +222,18 @@ def build_imbalance_bars(
                 close_reason,
             )
         )
-        if close_reason != "max_ticks":
+        if close_reason == "warmup":
+            expected_size = mean_size if np.isnan(expected_size) else expected_size
+        elif close_reason != "max_ticks":
             expected_ticks = _ewma_update(expected_ticks, float(n_ticks), alpha)
             expected_ticks = min(
                 max(expected_ticks, init_t * config.expected_ticks_min_mult),
                 init_t * config.expected_ticks_max_mult,
             )
             expected_size = mean_size if np.isnan(expected_size) else _ewma_update(expected_size, mean_size, alpha)
-            expected_2p1 = raw_2p1 if np.isnan(expected_2p1) else _ewma_update(expected_2p1, raw_2p1, alpha)
+            b = _ewma_update(b, float(buy_frac), alpha)
             if seed is not None:
-                afml = expected_ticks * _clip_imbalance_frac(expected_2p1, config) * expected_size
-                expected_imbalance = _ewma_update(expected_imbalance, float(afml), alpha)
+                expected_imbalance = _ewma_update(expected_imbalance, afml_theta(), alpha)
                 expected_imbalance = min(
                     max(expected_imbalance, seed.expected_imbalance * config.expected_imbalance_min_mult),
                     seed.expected_imbalance * config.expected_imbalance_max_mult,
@@ -230,12 +245,18 @@ def build_imbalance_bars(
         size_sum = 0.0
         start = i + 1
 
-    return _finalize_bars(rows)
+    state = EwmaState(
+        expected_ticks=float(expected_ticks),
+        b=float(b),
+        expected_size=float(expected_size) if np.isfinite(expected_size) else float("nan"),
+        expected_imbalance=float(expected_imbalance) if np.isfinite(expected_imbalance) else float("nan"),
+    )
+    return _finalize_bars(rows), state
 
 
 def build_bars(
     ticks: pd.DataFrame,
     config: PipelineConfig,
     seed: ImbalanceSeed | None = None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, EwmaState]:
     return build_imbalance_bars(ticks, config, seed=seed)

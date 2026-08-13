@@ -58,7 +58,7 @@ def test_triple_barrier_take_profit_and_timeout():
 
 def test_pipeline_on_synthetic_ticks():
     ticks = make_ticks(n=500, buy_prob=0.9)
-    bars, events, labeled, splits = run_from_ticks(ticks, tight_config())
+    bars, events, labeled, splits, _state = run_from_ticks(ticks, tight_config())
     assert len(bars) > 0
     assert set(labeled.columns) >= {"y_meta", "touch_type", "t1_ts", "side"}
     assert len(splits) >= 1
@@ -68,9 +68,21 @@ def test_pipeline_on_synthetic_ticks():
 
 def test_every_bar_events_follow_order_flow():
     ticks = make_ticks(n=200, buy_prob=1.0)
-    bars, events, labeled, splits = run_from_ticks(
+    bars, events, labeled, splits, _state = run_from_ticks(
         ticks, tight_config(event_mode="every_bar", bar_type="tick_imbalance")
     )
-    assert len(events) == len(bars)
+    usable = bars.loc[bars["close_reason"] != "warmup"]
+    assert len(events) == len(usable)
     assert set(events["side"].unique()) == {1}
-    assert len(every_bar_events(bars)) == len(bars)
+
+
+def test_warmup_session_does_not_label():
+    ticks = make_ticks(n=120, buy_prob=1.0)
+    bars, events, labeled, splits, state = run_from_ticks(
+        ticks, tight_config(session="warmup", bar_type="tick_imbalance", initial_expected_ticks=40)
+    )
+    assert not bars.empty
+    assert events.empty
+    assert labeled.empty
+    assert splits == []
+    assert abs(state.b - 0.5) < 1e-9 or state.b > 0.5
