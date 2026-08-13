@@ -51,7 +51,7 @@ def prior_year_window(as_of: date, lookback_days: int = 365) -> tuple[date, date
     return as_of - timedelta(days=lookback_days), as_of - timedelta(days=1)
 
 
-def threshold_from_average(average_daily_notional: float, divisor: int = 50) -> float:
+def threshold_from_average(average_daily_notional: float, divisor: int = 650) -> float:
     if average_daily_notional <= 0:
         raise ValueError("average daily notional must be positive")
     return float(average_daily_notional) / float(divisor)
@@ -177,7 +177,7 @@ def load_or_fetch_daily_quote_notional(
 def prior_year_notional(
     symbol: str,
     as_of: date,
-    divisor: int = 50,
+    divisor: int = 650,
     lookback_days: int = 365,
     cache_dir: Path | None = None,
 ) -> PriorYearNotional:

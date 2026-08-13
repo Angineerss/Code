@@ -1,4 +1,4 @@
-from src.imbalance import ImbalanceSeed, build_imbalance_bars
+from src.imbalance import EwmaState, ImbalanceSeed, build_imbalance_bars
 from tests.helpers import make_ticks, tight_config
 
 
@@ -85,7 +85,7 @@ def test_warmup_bar_keeps_init_b():
     assert bars.iloc[0]["tick_count"] == 30
 
 
-def test_initial_state_skips_warmup_and_uses_new_d():
+def test_initial_state_skips_warmup_and_continues_ewma_theta():
     ticks = make_ticks(n=80, buy_prob=1.0, qty=1.0)
     config = tight_config(bar_type="dollar_imbalance", initial_expected_ticks=20, max_ticks=25)
     first, state = build_imbalance_bars(
@@ -94,7 +94,7 @@ def test_initial_state_skips_warmup_and_uses_new_d():
         seed=ImbalanceSeed(expected_imbalance=50.0, expected_size=100.0),
     )
     assert (first["close_reason"] == "warmup").any()
-    next_seed = ImbalanceSeed(expected_imbalance=999.0)
+    next_seed = ImbalanceSeed(expected_imbalance=80.0)
     second, _ = build_imbalance_bars(
         ticks.iloc[40:],
         config,
@@ -102,5 +102,21 @@ def test_initial_state_skips_warmup_and_uses_new_d():
         initial_state=state,
     )
     assert "warmup" not in set(second["close_reason"])
-    assert second.iloc[0]["threshold"] == 999.0
+    lo, hi = 80.0 * 0.5, 80.0 * 2.0
+    continued = min(max(state.expected_imbalance, lo), hi)
+    assert second.iloc[0]["threshold"] == continued
     assert state.expected_size > 0
+
+
+def test_continued_theta_is_clipped_to_todays_d_band():
+    ticks = make_ticks(n=80, buy_prob=1.0, qty=1.0)
+    config = tight_config(bar_type="dollar_imbalance", initial_expected_ticks=20, max_ticks=25)
+    state = EwmaState(expected_ticks=20.0, b=0.5, expected_size=100.0, expected_imbalance=10.0)
+    bars, _ = build_imbalance_bars(
+        ticks,
+        config,
+        seed=ImbalanceSeed(expected_imbalance=100.0),
+        initial_state=state,
+    )
+    assert "warmup" not in set(bars["close_reason"])
+    assert bars.iloc[0]["threshold"] == 50.0

@@ -23,7 +23,7 @@
 
 | 단계 | 결정 |
 | --- | --- |
-| 바 | **달러 불균형 바**. `D = (슬라이딩 365 UTC일 일별 quote 거래대금 평균) / 50`. 창은 **어제까지** (`[as_of-365, as_of-1]`), 당일은 제외. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫날만 `init_T` 틱 EWMA 워밍업(라벨 제외). 다음 날부터는 전날 `ewma_state.json`을 이어받고 워밍업 바를 건너뜀. `D`는 그날의 슬라이딩 창으로 다시 잡음 |
+| 바 | **달러 불균형 바**. 시드 `D = (슬라이딩 365 UTC일 일별 quote 거래대금 평균) / 650`. 창은 **어제까지**. `E[θ]`는 불균형으로 닫힐 때마다 EWMA로 갱신하고, 다음 날 `ewma_state.json`에서 이어받음. 그날 슬라이딩 D의 `[0.5D, 2D]`로만 클립. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫날만 `init_T` 틱 워밍업(라벨 제외) |
 | Primary | 규칙 기반. CUSUM과 별개. 기본은 이벤트 바의 체결 불균형 부호 `sign(signed_flow)`. `--primary rule_cusum_sign`이면 필터 방향을 1차로 쓸 수 있음 |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
 | 이벤트 필터 | 불균형 바 종가 경로에 대칭 CUSUM. 1차 **이전** 필터. `S±`는 AFML 식 그대로, 넘은 쪽만 0으로 리셋. `h = 1σ`. `--event-mode every_bar`면 필터 없이 바마다 이벤트 |
@@ -48,8 +48,8 @@ Binance aggTrades
   → day 1: first init_T=20,000 ticks seed E[size], b stays 0.5 (not labeled)
   → later days: load previous ewma_state.json (skip warmup bar)
   → bars capped at max_ticks=50,000
-  → D = sliding 365d average daily quote notional ending yesterday / 50
-  → dollar imbalance bars, EWMA updates T/b/size
+  → D_seed = sliding 365d average daily quote notional ending yesterday / 650
+  → dollar imbalance bars; E[θ] EWMA-updates and continues across days
   → CUSUM filter (h = 1σ, reset crossed side only) picks event times
   → primary side = sign(signed dollar flow) on those bars
   → triple-barrier meta labels

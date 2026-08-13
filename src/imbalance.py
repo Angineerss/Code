@@ -30,7 +30,7 @@ BAR_COLUMNS = [
 
 @dataclass(frozen=True)
 class ImbalanceSeed:
-    """Prior-year D = mean(daily quote notional) / 50 for dollar imbalance."""
+    """Prior-year D = mean(daily quote notional) / 650; E[θ] then EWMA-updates."""
 
     expected_imbalance: float
     expected_size: float | None = None
@@ -65,6 +65,12 @@ def _signed_flow(price: np.ndarray, qty: np.ndarray, side: np.ndarray, bar_type:
     if bar_type == "dollar_imbalance":
         return side.astype(np.float64) * qty * price
     raise ValueError(f"Unknown bar_type: {bar_type}")
+
+
+def _clip_expected_imbalance(value: float, seed: ImbalanceSeed, config: PipelineConfig) -> float:
+    lo = seed.expected_imbalance * config.expected_imbalance_min_mult
+    hi = seed.expected_imbalance * config.expected_imbalance_max_mult
+    return float(min(max(value, lo), hi))
 
 
 def _clip_imbalance_frac(raw: float, config: PipelineConfig) -> float:
@@ -175,6 +181,10 @@ def build_imbalance_bars(
         expected_ticks = float(initial_state.expected_ticks)
         b = float(initial_state.b)
         expected_size = float(initial_state.expected_size)
+        if np.isfinite(initial_state.expected_imbalance):
+            expected_imbalance = float(initial_state.expected_imbalance)
+            if seed is not None:
+                expected_imbalance = _clip_expected_imbalance(expected_imbalance, seed, config)
         warmed = True
     theta = 0.0
     start = 0
@@ -243,10 +253,7 @@ def build_imbalance_bars(
             b = _ewma_update(b, float(buy_frac), alpha)
             if seed is not None:
                 expected_imbalance = _ewma_update(expected_imbalance, afml_theta(), alpha)
-                expected_imbalance = min(
-                    max(expected_imbalance, seed.expected_imbalance * config.expected_imbalance_min_mult),
-                    seed.expected_imbalance * config.expected_imbalance_max_mult,
-                )
+                expected_imbalance = _clip_expected_imbalance(expected_imbalance, seed, config)
         warmed = True
         theta = 0.0
         n_ticks = 0

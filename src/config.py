@@ -23,8 +23,8 @@ class PipelineConfig:
 
     # --- imbalance bars ---
     bar_type: BarType = "dollar_imbalance"
-    # E[θ]_0 = mean(prior 1y daily quote notional) / divisor. As-of day excluded.
-    imbalance_divisor: int = 50
+    # E[θ]_0 = mean(prior 1y daily quote notional) / divisor. Then EWMA-update.
+    imbalance_divisor: int = 650
     imbalance_lookback_days: int = 365
     imbalance_ewma_span: int = 50
     initial_expected_ticks: int = 20_000  # init_T; ~50-100 bars/day on liquid BTC

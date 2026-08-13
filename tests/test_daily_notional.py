@@ -32,8 +32,9 @@ def test_resolve_ewma_state_defaults_to_previous_day(tmp_path):
     assert resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 17)) is None
 
 
-def test_imbalance_threshold_is_one_fiftieth_of_prior_year_average():
+def test_imbalance_threshold_is_average_over_divisor():
     assert threshold_from_average(1_000_000.0, 50) == 20_000.0
+    assert threshold_from_average(650_000.0, 650) == 1_000.0
 
 
 def test_parse_klines_csv_quote_volume():
