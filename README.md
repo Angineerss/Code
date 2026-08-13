@@ -1,6 +1,6 @@
-# Binance tick → 달러바 → CUSUM → 트리플 베리어
+# Binance tick → 불균형 바 → CUSUM → 트리플 베리어
 
-MSFT 분봉 설계는 폐기했습니다. 학습용 샘플은 **바이낸스 현물 하루치 aggTrades(틱)** 를 받아 **달러바**로 샘플링하고, **CUSUM**으로 이벤트를 고른 뒤 트리플 베리어 메타 라벨을 붙입니다.
+학습용 샘플은 **바이낸스 현물 하루치 aggTrades(틱)** 를 받아 **달러 불균형 바**로 샘플링하고, **CUSUM**으로 이벤트를 고른 뒤 트리플 베리어 메타 라벨을 붙입니다.
 
 ## 확정 스펙
 
@@ -16,24 +16,22 @@ MSFT 분봉 설계는 폐기했습니다. 학습용 샘플은 **바이낸스 현
 | 거래량 | base `qty`, 달러 흐름은 `price * qty` |
 | 공격자 | `is_buyer_maker=True` → 적극 매도(`side=-1`), False → 적극 매수(`+1`) |
 | 타임스탬프 저장 | UTC |
-| 세션 필터 | 없음 (크립토 24/7). 주식 ET RTH 규칙은 적용하지 않음 |
+| 세션 필터 | 없음 (크립토 24/7) |
 | 결측 | 체결이 없으면 바를 만들지 않음 (forward-fill 없음) |
 
 ### 바 / 이벤트 / 라벨
 
 | 단계 | 결정 |
 | --- | --- |
-| 바 | **달러바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50`. 기준일 당일은 제외 (lookahead 없음) |
+| 바 | **달러 불균형 바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50` 이 `E[θ]` 초기 임계값. 기준일 당일 제외. `init_T = 직전 1년 평균 일 체결수 / 50` |
 | Primary | 규칙 기반. CUSUM 방향 = `side ∈ {+1,-1}` |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
-| 이벤트 | 달러바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ` (변동성 비례, recall 우선). `--event-mode every_bar`면 바마다 이벤트 |
+| 이벤트 | 불균형 바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ`. `--event-mode every_bar`면 바마다 이벤트 |
 | 트리플 베리어 | `pt=sl=1σ`, 수직장벽 `τ=20` 바, 경로는 바 high/low |
 | Meta 타깃 | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치 |
 | Meta 모델 | Random Forest (이 레포는 라벨까지) |
 
 바이낸스 `BTCUSDT`는 2017년에 상장되어 **2014-01-15 기준 1년은 존재하지 않습니다.** 기준일은 틱 데이터의 UTC 날짜입니다. 예: `--date 2024-01-15` → 평균 구간 `2023-01-15` ~ `2024-01-14`.
-
-불균형 바(`tick_imbalance` / `volume_imbalance` / `dollar_imbalance`)는 `--bar-type`으로 계속 쓸 수 있습니다.
 
 ### 검증
 
@@ -47,9 +45,9 @@ MSFT 분봉 설계는 폐기했습니다. 학습용 샘플은 **바이낸스 현
 ```text
 Binance aggTrades (1 UTC day)
   → aggressor-signed ticks
-  → prior 365d average daily quote notional / 50  →  D
-  → dollar bars
-  → CUSUM events (primary side)
+  → D = prior 365d average daily quote notional / 50
+  → dollar imbalance bars (|signed quote flow| vs EWMA E[θ] seeded at D)
+  → CUSUM events (h = 0.1σ)
   → triple-barrier meta labels
   → CPCV paths (purge + embargo)
 ```
@@ -61,7 +59,6 @@ pip install -r requirements.txt
 pytest
 python -m src --symbol BTCUSDT --date 2024-01-15
 python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
-python -m src --symbol BTCUSDT --date 2024-01-15 --bar-type dollar_imbalance
 ```
 
 산출물 (`data/`):
@@ -69,5 +66,3 @@ python -m src --symbol BTCUSDT --date 2024-01-15 --bar-type dollar_imbalance
 - `{SYMBOL}_{day}_bars.csv`
 - `{SYMBOL}_{day}_labels.csv`
 - `{SYMBOL}_{day}_summary.json`
-
-하루치 BTCUSDT aggTrades zip은 수십 MB일 수 있습니다. 테스트는 네트워크 없이 합성 틱만 사용합니다.

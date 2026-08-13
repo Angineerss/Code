@@ -1,4 +1,4 @@
-"""Dollar bars and AFML imbalance bars from aggressor-signed ticks."""
+"""AFML imbalance bars from aggressor-signed ticks."""
 
 from __future__ import annotations
 
@@ -26,6 +26,18 @@ BAR_COLUMNS = [
     "threshold",
     "close_reason",
 ]
+
+
+@dataclass(frozen=True)
+class ImbalanceSeed:
+    """Prior-year scale for dollar imbalance bars.
+
+    ``expected_imbalance`` is D = mean(prior 1y daily quote notional) / 50.
+    """
+
+    expected_imbalance: float
+    init_t: int
+    expected_size: float | None = None
 
 
 @dataclass(frozen=True)
@@ -120,64 +132,16 @@ def daily_quote_volume(ticks: pd.DataFrame) -> float:
     return float(ticks["quote_qty"].sum()) if not ticks.empty else 0.0
 
 
-def dollar_bar_threshold(average_daily_notional: float, config: PipelineConfig) -> float:
-    """D = prior-year average daily quote notional / 50."""
-    from .daily_notional import dollar_threshold_from_average
-
-    return dollar_threshold_from_average(average_daily_notional, config.dollar_bar_divisor)
-
-
-def build_dollar_bars(
+def build_imbalance_bars(
     ticks: pd.DataFrame,
     config: PipelineConfig,
-    threshold: float | None = None,
+    seed: ImbalanceSeed | None = None,
 ) -> pd.DataFrame:
-    """Close a bar whenever cumulative quote volume reaches D.
-
-    ``threshold`` should be prior-year average daily notional / 50. If omitted,
-    tests may pass same-day notional / 50.
-    """
-    if ticks.empty:
-        return _empty_bars()
-    arrays = _tick_arrays(ticks)
-    if threshold is None:
-        threshold = daily_quote_volume(ticks) / float(config.dollar_bar_divisor)
-    if threshold <= 0:
-        return _empty_bars()
-
-    rows: list[list[object]] = []
-    start = 0
-    n_ticks = 0
-    buy_ticks = 0
-    signed_flow = 0.0
-    cum_quote = 0.0
-    for i in range(len(arrays.quote)):
-        cum_quote += arrays.quote[i]
-        signed_flow += arrays.side[i] * arrays.quote[i]
-        n_ticks += 1
-        buy_ticks += int(arrays.side[i] > 0)
-        if cum_quote < threshold:
-            continue
-        rows.append(_bar_row(arrays, start, i + 1, n_ticks, buy_ticks, signed_flow, threshold, "dollar"))
-        start = i + 1
-        n_ticks = 0
-        buy_ticks = 0
-        signed_flow = 0.0
-        cum_quote = 0.0
-    if n_ticks > 0:
-        rows.append(
-            _bar_row(arrays, start, len(arrays.quote), n_ticks, buy_ticks, signed_flow, threshold, "eod")
-        )
-    return _finalize_bars(rows)
-
-
-def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     """Sample bars when |signed flow| exceeds expected imbalance.
 
     Expected imbalance follows AFML: ``E[T] * |2P[buy]-1| * E[size]``.
-    ``P[buy]`` is the tick buy fraction inside each closed bar, *not* the
-    hitting-time |θ|/T. Using |θ|/T feeds the close condition back into the
-    next threshold and makes bars progressively coarser.
+    For dollar imbalance, E[θ] is seeded at D = prior-year average daily
+    notional / 50 and clipped around that scale so it cannot run away.
     """
     if ticks.empty:
         return _empty_bars()
@@ -187,9 +151,15 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
     abs_flow = np.abs(flow)
     alpha = 2.0 / (config.imbalance_ewma_span + 1.0)
 
-    expected_ticks = float(config.initial_expected_ticks)
-    expected_size = np.nan
+    init_t = int(seed.init_t) if seed is not None else int(config.initial_expected_ticks)
+    expected_ticks = float(init_t)
+    expected_size = (
+        float(seed.expected_size)
+        if seed is not None and seed.expected_size is not None
+        else np.nan
+    )
     expected_2p1 = np.nan
+    expected_imbalance = float(seed.expected_imbalance) if seed is not None else np.nan
     theta = 0.0
     start = 0
     n_ticks = 0
@@ -201,6 +171,8 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
     def threshold_now() -> float:
         if not warmed:
             return float("inf")
+        if seed is not None and np.isfinite(expected_imbalance):
+            return float(expected_imbalance)
         frac = _clip_imbalance_frac(expected_2p1, config)
         return expected_ticks * frac * expected_size
 
@@ -210,9 +182,9 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
         buy_ticks += int(arrays.side[i] > 0)
         size_sum += abs_flow[i]
 
-        max_ticks = max(int(expected_ticks * config.max_ticks_mult), config.initial_expected_ticks)
+        max_ticks = max(int(expected_ticks * config.max_ticks_mult), init_t)
         if not warmed:
-            close_reason = "warmup" if n_ticks >= config.initial_expected_ticks else None
+            close_reason = "warmup" if n_ticks >= init_t else None
         elif abs(theta) >= max(threshold_now(), 1e-12):
             close_reason = "imbalance"
         elif n_ticks >= max_ticks:
@@ -239,11 +211,18 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
         if close_reason != "max_ticks":
             expected_ticks = _ewma_update(expected_ticks, float(n_ticks), alpha)
             expected_ticks = min(
-                max(expected_ticks, config.initial_expected_ticks * config.expected_ticks_min_mult),
-                config.initial_expected_ticks * config.expected_ticks_max_mult,
+                max(expected_ticks, init_t * config.expected_ticks_min_mult),
+                init_t * config.expected_ticks_max_mult,
             )
             expected_size = mean_size if np.isnan(expected_size) else _ewma_update(expected_size, mean_size, alpha)
             expected_2p1 = raw_2p1 if np.isnan(expected_2p1) else _ewma_update(expected_2p1, raw_2p1, alpha)
+            if seed is not None:
+                afml = expected_ticks * _clip_imbalance_frac(expected_2p1, config) * expected_size
+                expected_imbalance = _ewma_update(expected_imbalance, float(afml), alpha)
+                expected_imbalance = min(
+                    max(expected_imbalance, seed.expected_imbalance * config.expected_imbalance_min_mult),
+                    seed.expected_imbalance * config.expected_imbalance_max_mult,
+                )
         warmed = True
         theta = 0.0
         n_ticks = 0
@@ -257,8 +236,6 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
 def build_bars(
     ticks: pd.DataFrame,
     config: PipelineConfig,
-    dollar_threshold: float | None = None,
+    seed: ImbalanceSeed | None = None,
 ) -> pd.DataFrame:
-    if config.bar_type == "dollar":
-        return build_dollar_bars(ticks, config, threshold=dollar_threshold)
-    return build_imbalance_bars(ticks, config)
+    return build_imbalance_bars(ticks, config, seed=seed)

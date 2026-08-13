@@ -1,4 +1,4 @@
-"""Prior-year daily quote notional for the dollar-bar threshold."""
+"""Prior-year daily quote notional for the imbalance-bar threshold."""
 
 from __future__ import annotations
 
@@ -38,6 +38,9 @@ class PriorYearNotional:
     end: date
     n_days: int
     average_daily_notional: float
+    average_daily_trades: float | None
+    expected_size: float | None
+    init_t: int | None
     threshold: float
 
 
@@ -48,7 +51,7 @@ def prior_year_window(as_of: date, lookback_days: int = 365) -> tuple[date, date
     return as_of - timedelta(days=lookback_days), as_of - timedelta(days=1)
 
 
-def dollar_threshold_from_average(average_daily_notional: float, divisor: int = 50) -> float:
+def threshold_from_average(average_daily_notional: float, divisor: int = 50) -> float:
     if average_daily_notional <= 0:
         raise ValueError("average daily notional must be positive")
     return float(average_daily_notional) / float(divisor)
@@ -71,6 +74,7 @@ def parse_klines(payload: list) -> pd.DataFrame:
         {
             "open_time": pd.to_datetime(int(item[0]), unit="ms", utc=True),
             "quote_volume": float(item[7]),
+            "n_trades": float(item[8]),
         }
         for item in payload
     ]
@@ -86,8 +90,9 @@ def parse_klines_csv(raw: bytes | io.BufferedReader) -> pd.DataFrame:
         {
             "open_time": pd.to_datetime(open_time, unit="ms", utc=True),
             "quote_volume": pd.to_numeric(df["quote_volume"], errors="coerce"),
+            "n_trades": pd.to_numeric(df["n_trades"], errors="coerce"),
         }
-    ).dropna()
+    ).dropna(subset=["quote_volume"])
 
 
 def monthly_klines_url(symbol: str, year: int, month: int, market: str = "spot") -> str:
@@ -154,10 +159,10 @@ def load_or_fetch_daily_quote_notional(
 ) -> pd.DataFrame:
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_dir / f"{symbol.upper()}_1d_quote_{start.isoformat()}_{end.isoformat()}.csv"
+        cache_path = cache_dir / f"{symbol.upper()}_1d_{start.isoformat()}_{end.isoformat()}.csv"
         if cache_path.exists():
             df = pd.read_csv(cache_path, parse_dates=["open_time"])
-            if not df.empty:
+            if not df.empty and "quote_volume" in df.columns:
                 df["open_time"] = pd.to_datetime(df["open_time"], utc=True)
                 return df
     try:
@@ -181,10 +186,21 @@ def prior_year_notional(
     if daily.empty:
         raise FileNotFoundError(f"No daily quote volume for {symbol} in {start}..{end}")
     average = float(daily["quote_volume"].mean())
+    avg_trades = None
+    expected_size = None
+    init_t = None
+    if "n_trades" in daily and daily["n_trades"].notna().any():
+        avg_trades = float(daily["n_trades"].mean())
+        if avg_trades > 0:
+            expected_size = average / avg_trades
+            init_t = max(int(round(avg_trades / divisor)), 1)
     return PriorYearNotional(
         start=start,
         end=end,
         n_days=int(len(daily)),
         average_daily_notional=average,
-        threshold=dollar_threshold_from_average(average, divisor),
+        average_daily_trades=avg_trades,
+        expected_size=expected_size,
+        init_t=init_t,
+        threshold=threshold_from_average(average, divisor),
     )

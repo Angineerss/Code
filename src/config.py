@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-BarType = Literal["dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"]
+BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 
@@ -19,24 +19,21 @@ class PipelineConfig:
     timestamp_storage: str = "UTC"
     session_filter: str | None = None  # crypto trades 24/7
 
-    # --- dollar bars ---
-    # D = mean(prior 1y daily quote notional) / divisor. The as-of day is excluded.
-    bar_type: BarType = "dollar"
-    dollar_bar_divisor: int = 50
-    dollar_lookback_days: int = 365
-
-    # --- imbalance bars (optional; --bar-type dollar_imbalance / tick_imbalance) ---
+    # --- imbalance bars ---
+    bar_type: BarType = "dollar_imbalance"
+    # E[θ]_0 = mean(prior 1y daily quote notional) / divisor. As-of day excluded.
+    imbalance_divisor: int = 50
+    imbalance_lookback_days: int = 365
     imbalance_ewma_span: int = 50
-    initial_expected_ticks: int = 80
-    # Clip |2P[buy]-1| when forming the threshold. A ceiling stops one-sided
-    # bars from inflating the next bar; a floor stops 1-tick bars when P≈0.5.
+    initial_expected_ticks: int = 80  # fallback if prior-year trade counts are missing
     min_abs_2p1: float = 0.05
     max_abs_2p1: float = 0.15
-    # Force-close if the imbalance never hits (keeps the information clock moving).
     max_ticks_mult: float = 4.0
-    # Keep E[T] from drifting after long max-tick bars.
     expected_ticks_min_mult: float = 0.5
     expected_ticks_max_mult: float = 2.0
+    # Keep E[θ] from drifting too far from the prior-year scale D.
+    expected_imbalance_min_mult: float = 0.5
+    expected_imbalance_max_mult: float = 2.0
 
     # --- event filter ---
     event_mode: EventMode = "cusum"

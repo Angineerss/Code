@@ -1,4 +1,4 @@
-"""Run Binance tick → dollar bars → CUSUM → triple-barrier labels."""
+"""Run Binance tick → imbalance bars → CUSUM → triple-barrier labels."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from .cpcv import cpcv_splits
 from .cusum import select_events
 from .daily_notional import PriorYearNotional, prior_year_notional
 from .download import load_or_download_day
-from .imbalance import build_bars, daily_quote_volume
+from .imbalance import ImbalanceSeed, build_bars, daily_quote_volume
 
 
-def run_from_ticks(ticks, config: PipelineConfig, dollar_threshold: float | None = None):
-    bars = build_bars(ticks, config, dollar_threshold=dollar_threshold)
+def run_from_ticks(ticks, config: PipelineConfig, seed: ImbalanceSeed | None = None):
+    bars = build_bars(ticks, config, seed=seed)
     events = select_events(bars, config)
     labeled = apply_triple_barrier(bars, events, config)
     splits = list(cpcv_splits(labeled, config))
@@ -47,14 +47,16 @@ def _summarize(
         "symbol": config.symbol,
         "day": None if day is None else day.isoformat(),
         "bar_type": config.bar_type,
-        "dollar_bar_divisor": config.dollar_bar_divisor,
-        "dollar_lookback_days": config.dollar_lookback_days,
+        "imbalance_divisor": config.imbalance_divisor,
+        "imbalance_lookback_days": config.imbalance_lookback_days,
         "prior_year_start": None if prior is None else prior.start.isoformat(),
         "prior_year_end": None if prior is None else prior.end.isoformat(),
         "prior_year_n_days": None if prior is None else prior.n_days,
         "prior_year_avg_daily_notional": None if prior is None else prior.average_daily_notional,
+        "prior_year_avg_daily_trades": None if prior is None else prior.average_daily_trades,
+        "init_t": None if prior is None else prior.init_t,
         "as_of_day_quote_notional": daily_notional,
-        "dollar_bar_threshold": None if prior is None else prior.threshold,
+        "imbalance_threshold_d": None if prior is None else prior.threshold,
         "event_mode": config.event_mode,
         "cusum_k": config.cusum_k,
         "n_bars": int(len(bars)),
@@ -80,8 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", default="data")
     parser.add_argument(
         "--bar-type",
-        default="dollar",
-        choices=("dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        default="dollar_imbalance",
+        choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
     )
     parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
     args = parser.parse_args(argv)
@@ -97,18 +99,21 @@ def main(argv: list[str] | None = None) -> int:
     ticks, day = load_or_download_day(config.symbol, dest, config.market, day)
 
     prior = None
-    dollar_threshold = None
-    if config.bar_type == "dollar":
+    seed = None
+    if config.bar_type == "dollar_imbalance":
         prior = prior_year_notional(
             config.symbol,
             day,
-            divisor=config.dollar_bar_divisor,
-            lookback_days=config.dollar_lookback_days,
+            divisor=config.imbalance_divisor,
+            lookback_days=config.imbalance_lookback_days,
             cache_dir=dest / "klines",
         )
-        dollar_threshold = prior.threshold
-
-    bars, events, labeled, splits = run_from_ticks(ticks, config, dollar_threshold=dollar_threshold)
+        seed = ImbalanceSeed(
+            expected_imbalance=prior.threshold,
+            init_t=prior.init_t or config.initial_expected_ticks,
+            expected_size=prior.expected_size,
+        )
+    bars, events, labeled, splits = run_from_ticks(ticks, config, seed=seed)
 
     dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
