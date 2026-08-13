@@ -20,9 +20,10 @@ class PipelineConfig:
     session_filter: str | None = None  # crypto trades 24/7
 
     # --- dollar bars ---
-    # D = that UTC day's total quote notional / divisor (~50 bars / day).
+    # D = mean(prior 1y daily quote notional) / divisor. The as-of day is excluded.
     bar_type: BarType = "dollar"
     dollar_bar_divisor: int = 50
+    dollar_lookback_days: int = 365
 
     # --- imbalance bars (optional; --bar-type dollar_imbalance / tick_imbalance) ---
     imbalance_ewma_span: int = 50

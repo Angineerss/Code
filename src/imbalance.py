@@ -120,17 +120,28 @@ def daily_quote_volume(ticks: pd.DataFrame) -> float:
     return float(ticks["quote_qty"].sum()) if not ticks.empty else 0.0
 
 
-def dollar_bar_threshold(ticks: pd.DataFrame, config: PipelineConfig) -> float:
-    """D = that UTC day's Binance quote notional / 50."""
-    return daily_quote_volume(ticks) / float(config.dollar_bar_divisor)
+def dollar_bar_threshold(average_daily_notional: float, config: PipelineConfig) -> float:
+    """D = prior-year average daily quote notional / 50."""
+    from .daily_notional import dollar_threshold_from_average
+
+    return dollar_threshold_from_average(average_daily_notional, config.dollar_bar_divisor)
 
 
-def build_dollar_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    """Close a bar whenever cumulative quote volume reaches D = daily_notional / 50."""
+def build_dollar_bars(
+    ticks: pd.DataFrame,
+    config: PipelineConfig,
+    threshold: float | None = None,
+) -> pd.DataFrame:
+    """Close a bar whenever cumulative quote volume reaches D.
+
+    ``threshold`` should be prior-year average daily notional / 50. If omitted,
+    tests may pass same-day notional / 50.
+    """
     if ticks.empty:
         return _empty_bars()
     arrays = _tick_arrays(ticks)
-    threshold = dollar_bar_threshold(ticks, config)
+    if threshold is None:
+        threshold = daily_quote_volume(ticks) / float(config.dollar_bar_divisor)
     if threshold <= 0:
         return _empty_bars()
 
@@ -243,7 +254,11 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
     return _finalize_bars(rows)
 
 
-def build_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+def build_bars(
+    ticks: pd.DataFrame,
+    config: PipelineConfig,
+    dollar_threshold: float | None = None,
+) -> pd.DataFrame:
     if config.bar_type == "dollar":
-        return build_dollar_bars(ticks, config)
+        return build_dollar_bars(ticks, config, threshold=dollar_threshold)
     return build_imbalance_bars(ticks, config)

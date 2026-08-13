@@ -11,12 +11,13 @@ from .barriers import apply_triple_barrier
 from .config import PipelineConfig
 from .cpcv import cpcv_splits
 from .cusum import select_events
+from .daily_notional import PriorYearNotional, prior_year_notional
 from .download import load_or_download_day
-from .imbalance import build_bars, daily_quote_volume, dollar_bar_threshold
+from .imbalance import build_bars, daily_quote_volume
 
 
-def run_from_ticks(ticks, config: PipelineConfig):
-    bars = build_bars(ticks, config)
+def run_from_ticks(ticks, config: PipelineConfig, dollar_threshold: float | None = None):
+    bars = build_bars(ticks, config, dollar_threshold=dollar_threshold)
     events = select_events(bars, config)
     labeled = apply_triple_barrier(bars, events, config)
     splits = list(cpcv_splits(labeled, config))
@@ -30,20 +31,32 @@ def _median(series) -> float | None:
     return None if value != value else float(value)
 
 
-def _summarize(bars, events, labeled, splits, config: PipelineConfig, day: date | None, ticks=None) -> dict:
+def _summarize(
+    bars,
+    events,
+    labeled,
+    splits,
+    config: PipelineConfig,
+    day: date | None,
+    ticks=None,
+    prior: PriorYearNotional | None = None,
+) -> dict:
     close_reasons = None if bars.empty or "close_reason" not in bars else bars["close_reason"].value_counts().to_dict()
     daily_notional = None if ticks is None else daily_quote_volume(ticks)
-    dollar_d = None if ticks is None or config.bar_type != "dollar" else dollar_bar_threshold(ticks, config)
     return {
         "symbol": config.symbol,
         "day": None if day is None else day.isoformat(),
         "bar_type": config.bar_type,
         "dollar_bar_divisor": config.dollar_bar_divisor,
-        "daily_quote_notional": daily_notional,
-        "dollar_bar_threshold": dollar_d,
+        "dollar_lookback_days": config.dollar_lookback_days,
+        "prior_year_start": None if prior is None else prior.start.isoformat(),
+        "prior_year_end": None if prior is None else prior.end.isoformat(),
+        "prior_year_n_days": None if prior is None else prior.n_days,
+        "prior_year_avg_daily_notional": None if prior is None else prior.average_daily_notional,
+        "as_of_day_quote_notional": daily_notional,
+        "dollar_bar_threshold": None if prior is None else prior.threshold,
         "event_mode": config.event_mode,
         "cusum_k": config.cusum_k,
-        "initial_expected_ticks": config.initial_expected_ticks,
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
         "n_labels": int(len(labeled)),
@@ -82,13 +95,26 @@ def main(argv: list[str] | None = None) -> int:
     dest = Path(args.data_dir)
     day = date.fromisoformat(args.date) if args.date else None
     ticks, day = load_or_download_day(config.symbol, dest, config.market, day)
-    bars, events, labeled, splits = run_from_ticks(ticks, config)
+
+    prior = None
+    dollar_threshold = None
+    if config.bar_type == "dollar":
+        prior = prior_year_notional(
+            config.symbol,
+            day,
+            divisor=config.dollar_bar_divisor,
+            lookback_days=config.dollar_lookback_days,
+            cache_dir=dest / "klines",
+        )
+        dollar_threshold = prior.threshold
+
+    bars, events, labeled, splits = run_from_ticks(ticks, config, dollar_threshold=dollar_threshold)
 
     dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
     labeled.to_csv(dest / f"{config.symbol}_{day}_labels.csv", index=False)
 
-    summary = _summarize(bars, events, labeled, splits, config, day, ticks)
+    summary = _summarize(bars, events, labeled, splits, config, day, ticks, prior)
     summary["n_ticks"] = int(len(ticks))
     print(json.dumps(summary, indent=2, default=str))
     (dest / f"{config.symbol}_{day}_summary.json").write_text(
