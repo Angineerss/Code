@@ -62,6 +62,20 @@ def test_expected_ticks_do_not_run_away_after_max_tick_bars():
     assert len(bars) >= 20
 
 
+def test_hard_max_ticks_caps_bar_length():
+    ticks = make_ticks(n=400, buy_prob=0.5, seed=4)
+    config = tight_config(
+        bar_type="tick_imbalance",
+        initial_expected_ticks=20,
+        max_ticks=50,
+        max_ticks_mult=10.0,
+        min_abs_2p1=1.0,
+        max_abs_2p1=1.0,
+    )
+    bars, _state = build_imbalance_bars(ticks, config)
+    assert bars["tick_count"].max() <= 50
+
+
 def test_warmup_bar_keeps_init_b():
     ticks = make_ticks(n=30, buy_prob=1.0)
     config = tight_config(bar_type="tick_imbalance", initial_expected_ticks=30, init_b=0.5)

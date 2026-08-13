@@ -23,7 +23,7 @@
 
 | 단계 | 결정 |
 | --- | --- |
-| 바 | **달러 불균형 바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50` 이 `E[θ]` 초기값. `init_T = 500,000`, `init_b = 0.5`. 첫 `init_T` 틱은 EWMA 워밍업(라벨 제외), 이후 바는 CUSUM·트리플 베리어 학습 진행 |
+| 바 | **달러 불균형 바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50` 이 `E[θ]` 초기값. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫 `init_T` 틱은 EWMA 워밍업(라벨 제외), 이후 바는 CUSUM·트리플 베리어 학습 진행 |
 | Primary | 규칙 기반. CUSUM 방향 = `side ∈ {+1,-1}` |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
 | 이벤트 | 불균형 바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ`. `--event-mode every_bar`면 바마다 이벤트 |
@@ -45,7 +45,8 @@
 ```text
 Binance aggTrades
   → aggressor-signed ticks
-  → first init_T=500,000 ticks seed E[size], b stays 0.5 (not labeled)
+  → first init_T=20,000 ticks seed E[size], b stays 0.5 (not labeled)
+  → bars capped at max_ticks=50,000
   → D = prior 365d average daily quote notional / 50
   → dollar imbalance bars, EWMA updates T/b/size
   → CUSUM (h = 0.1σ) + triple-barrier labels on post-warmup bars

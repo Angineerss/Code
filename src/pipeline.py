@@ -56,6 +56,7 @@ def _summarize(
         "bar_type": config.bar_type,
         "init_t": config.initial_expected_ticks,
         "init_b": config.init_b,
+        "max_ticks": config.max_ticks,
         "imbalance_divisor": config.imbalance_divisor,
         "imbalance_lookback_days": config.imbalance_lookback_days,
         "prior_year_start": None if prior is None else prior.start.isoformat(),

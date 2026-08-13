@@ -26,12 +26,13 @@ class PipelineConfig:
     imbalance_divisor: int = 50
     imbalance_lookback_days: int = 365
     imbalance_ewma_span: int = 50
-    initial_expected_ticks: int = 500_000  # init_T
+    initial_expected_ticks: int = 20_000  # init_T; ~50-100 bars/day on liquid BTC
     init_b: float = 0.5  # P[buy] seed; |2b-1| starts at 0
     session: SessionType = "research"
     min_abs_2p1: float = 0.05
     max_abs_2p1: float = 0.15
-    max_ticks_mult: float = 4.0
+    max_ticks: int = 50_000  # hard cap on ticks per bar
+    max_ticks_mult: float = 2.5  # 50,000 / 20,000; still clipped by max_ticks
     expected_ticks_min_mult: float = 0.5
     expected_ticks_max_mult: float = 2.0
     # Keep E[θ] from drifting too far from the prior-year scale D.

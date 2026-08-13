@@ -196,7 +196,10 @@ def build_imbalance_bars(
         buy_ticks += int(arrays.side[i] > 0)
         size_sum += abs_flow[i]
 
-        max_ticks = max(int(expected_ticks * config.max_ticks_mult), init_t)
+        max_ticks = min(
+            config.max_ticks,
+            max(int(expected_ticks * config.max_ticks_mult), init_t),
+        )
         if not warmed:
             close_reason = "warmup" if n_ticks >= init_t else None
         elif abs(theta) >= max(threshold_now(), 1e-12):
