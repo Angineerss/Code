@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.barriers import apply_triple_barrier
-from src.cusum import cusum_events, every_bar_events, select_events
+from src.cusum import cusum_events, select_events
 from src.pipeline import run_from_ticks
 from tests.helpers import make_ticks, tight_config
 
