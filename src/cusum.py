@@ -16,7 +16,7 @@ def ewm_std(values: np.ndarray, span: int) -> np.ndarray:
 def cusum_threshold(log_ret: np.ndarray, config: PipelineConfig) -> np.ndarray:
     """Volatility-scaled CUSUM barrier: h_t = k * σ_t.
 
-    Default k=0.1 keeps the primary filter high-recall.
+    Default k=1 uses one EWM standard deviation of the bar log-return series.
     """
     if config.cusum_mode == "absolute":
         return np.full(len(log_ret), config.cusum_absolute_h, dtype=float)
@@ -51,10 +51,11 @@ def select_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
 
 
 def cusum_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    """Emit an event when cumulative log-price drift exceeds h.
+    """AFML symmetric CUSUM on bar log-returns (snippet 2.4).
 
-    ``side`` is the CUSUM direction: +1 up-cross, -1 down-cross.
-    This is the high-recall rule-based primary signal.
+    S+_t = max(0, S+_{t-1} + y_t), S-_t = min(0, S-_{t-1} + y_t),
+    with y_t = Δ log price. Only the side that crosses ±h is reset to 0.
+    ``side`` is that crossing: +1 up, -1 down.
     """
     if bars.empty:
         return pd.DataFrame(columns=["bar_id", "event_ts", "side", "threshold"])
@@ -74,14 +75,12 @@ def cusum_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
         s_pos = max(0.0, s_pos + delta[i])
         s_neg = min(0.0, s_neg + delta[i])
         level = h[i] if np.isfinite(h[i]) else h[i - 1]
-        if s_pos > level:
+        if s_neg < -level:
+            rows.append([int(bar_id[i]), ts[i], -1, float(level)])
+            s_neg = 0.0
+        elif s_pos > level:
             rows.append([int(bar_id[i]), ts[i], 1, float(level)])
             s_pos = 0.0
-            s_neg = 0.0
-        elif s_neg < -level:
-            rows.append([int(bar_id[i]), ts[i], -1, float(level)])
-            s_pos = 0.0
-            s_neg = 0.0
 
     events = pd.DataFrame(rows, columns=["bar_id", "event_ts", "side", "threshold"])
     if not events.empty:

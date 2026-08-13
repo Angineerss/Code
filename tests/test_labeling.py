@@ -31,6 +31,40 @@ def test_cusum_detects_up_drift():
     assert set(events["side"].unique()) == {1}
 
 
+def test_cusum_resets_only_the_crossed_side():
+    n = 8
+    log_p = np.array([0.0, 0.02, 0.03, 0.01, -0.02, -0.05, -0.04, 0.0])
+    close = np.exp(log_p)
+    ts = pd.date_range("2024-01-15", periods=n, freq="1min", tz="UTC")
+    bars = pd.DataFrame(
+        {
+            "bar_id": np.arange(n),
+            "start_ts": ts,
+            "end_ts": ts + pd.Timedelta(seconds=50),
+            "open": close,
+            "high": close,
+            "low": close,
+            "close": close,
+            "log_ret": np.concatenate([[np.nan], np.diff(log_p)]),
+        }
+    )
+    events = cusum_events(bars, tight_config(cusum_mode="absolute", cusum_absolute_h=0.025))
+    s_pos = s_neg = 0.0
+    expected: list[tuple[int, int]] = []
+    y = np.diff(log_p, prepend=log_p[0])
+    for i in range(1, n):
+        s_pos = max(0.0, s_pos + y[i])
+        s_neg = min(0.0, s_neg + y[i])
+        if s_neg < -0.025:
+            expected.append((i, -1))
+            s_neg = 0.0
+        elif s_pos > 0.025:
+            expected.append((i, 1))
+            s_pos = 0.0
+    assert expected
+    assert list(zip(events["bar_id"].tolist(), events["side"].tolist())) == expected
+
+
 def test_vol_scaled_cusum_lower_k_has_higher_recall():
     bars = _monotonic_bars(n=60, step=0.05)
     loose = cusum_events(bars, tight_config(cusum_mode="ewm_std", cusum_k=0.1, cusum_vol_span=10))

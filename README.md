@@ -26,7 +26,7 @@
 | 바 | **달러 불균형 바**. `D = (슬라이딩 365 UTC일 일별 quote 거래대금 평균) / 50`. 창은 **어제까지** (`[as_of-365, as_of-1]`), 당일은 제외. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫날만 `init_T` 틱 EWMA 워밍업(라벨 제외). 다음 날부터는 전날 `ewma_state.json`을 이어받고 워밍업 바를 건너뜀. `D`는 그날의 슬라이딩 창으로 다시 잡음 |
 | Primary | 규칙 기반. CUSUM 방향 = `side ∈ {+1,-1}` |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
-| 이벤트 | 불균형 바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ`. `--event-mode every_bar`면 바마다 이벤트 |
+| 이벤트 | 불균형 바 종가 경로에 대칭 CUSUM. `S±`는 AFML 식 그대로, 넘은 쪽만 0으로 리셋. 임계값 `h = 1σ` (바 로그수익 지수가중 표준편차). `--event-mode every_bar`면 바마다 이벤트 |
 | 트리플 베리어 | `pt=sl=1σ`, 수직장벽 `τ=20` 바, 경로는 바 high/low |
 | Meta 타깃 | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치 |
 | Meta 모델 | Random Forest (이 레포는 라벨까지) |
@@ -50,7 +50,7 @@ Binance aggTrades
   → bars capped at max_ticks=50,000
   → D = sliding 365d average daily quote notional ending yesterday / 50
   → dollar imbalance bars, EWMA updates T/b/size
-  → CUSUM (h = 0.1σ) + triple-barrier labels on post-warmup bars
+  → CUSUM (h = 1σ, reset crossed side only) + triple-barrier labels on post-warmup bars
   → CPCV
 ```
 
