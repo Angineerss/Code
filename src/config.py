@@ -42,7 +42,7 @@ class PipelineConfig:
     event_mode: EventMode = "cusum"
     cusum_mode: CusumMode = "ewm_std"
     cusum_vol_span: int = 50
-    cusum_k: float = 0.25  # high-recall; h = k * EWM std of bar log-returns
+    cusum_k: float = 0.1  # high-recall primary: h = 0.1 * EWM std of bar log-returns
     cusum_absolute_h: float = 0.001
 
     # --- triple barrier / meta label ---

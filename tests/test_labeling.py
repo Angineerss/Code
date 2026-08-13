@@ -31,6 +31,14 @@ def test_cusum_detects_up_drift():
     assert set(events["side"].unique()) == {1}
 
 
+def test_vol_scaled_cusum_lower_k_has_higher_recall():
+    bars = _monotonic_bars(n=60, step=0.05)
+    loose = cusum_events(bars, tight_config(cusum_mode="ewm_std", cusum_k=0.1, cusum_vol_span=10))
+    strict = cusum_events(bars, tight_config(cusum_mode="ewm_std", cusum_k=1.0, cusum_vol_span=10))
+    assert not loose.empty
+    assert len(loose) >= len(strict)
+
+
 def test_triple_barrier_take_profit_and_timeout():
     bars = _monotonic_bars(n=30, step=1.0)
     events = pd.DataFrame(

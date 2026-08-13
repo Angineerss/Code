@@ -26,7 +26,7 @@ MSFT 분봉 설계는 폐기했습니다. 학습용 샘플은 **바이낸스 현
 | 바 | **달러바**. `D = (기준일 직전 365일 일별 quote 거래대금 평균) / 50`. 기준일 당일은 제외 (lookahead 없음) |
 | Primary | 규칙 기반. CUSUM 방향 = `side ∈ {+1,-1}` |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수) |
-| 이벤트 | 달러바 종가 경로에 대칭 CUSUM, `h = 0.25σ` (기본). `--event-mode every_bar`면 바마다 이벤트 |
+| 이벤트 | 달러바 종가 경로에 대칭 CUSUM. 임계값 `h = 0.1σ` (변동성 비례, recall 우선). `--event-mode every_bar`면 바마다 이벤트 |
 | 트리플 베리어 | `pt=sl=1σ`, 수직장벽 `τ=20` 바, 경로는 바 high/low |
 | Meta 타깃 | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치 |
 | Meta 모델 | Random Forest (이 레포는 라벨까지) |

@@ -14,6 +14,10 @@ def ewm_std(values: np.ndarray, span: int) -> np.ndarray:
 
 
 def cusum_threshold(log_ret: np.ndarray, config: PipelineConfig) -> np.ndarray:
+    """Volatility-scaled CUSUM barrier: h_t = k * σ_t.
+
+    Default k=0.1 keeps the primary filter high-recall.
+    """
     if config.cusum_mode == "absolute":
         return np.full(len(log_ret), config.cusum_absolute_h, dtype=float)
     vol = ewm_std(log_ret, config.cusum_vol_span)
