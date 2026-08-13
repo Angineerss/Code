@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
+BarType = Literal["dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 
@@ -19,8 +19,12 @@ class PipelineConfig:
     timestamp_storage: str = "UTC"
     session_filter: str | None = None  # crypto trades 24/7
 
-    # --- imbalance bars (AFML ch.2), tuned for microstructure density ---
-    bar_type: BarType = "dollar_imbalance"
+    # --- dollar bars ---
+    # D = that UTC day's total quote notional / divisor (~50 bars / day).
+    bar_type: BarType = "dollar"
+    dollar_bar_divisor: int = 50
+
+    # --- imbalance bars (optional; --bar-type dollar_imbalance / tick_imbalance) ---
     imbalance_ewma_span: int = 50
     initial_expected_ticks: int = 80
     # Clip |2P[buy]-1| when forming the threshold. A ceiling stops one-sided

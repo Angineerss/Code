@@ -1,4 +1,4 @@
-"""Run Binance tick → imbalance bars → CUSUM → triple-barrier labels."""
+"""Run Binance tick → dollar bars → CUSUM → triple-barrier labels."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from .config import PipelineConfig
 from .cpcv import cpcv_splits
 from .cusum import select_events
 from .download import load_or_download_day
-from .imbalance import build_imbalance_bars
+from .imbalance import build_bars, daily_quote_volume, dollar_bar_threshold
 
 
 def run_from_ticks(ticks, config: PipelineConfig):
-    bars = build_imbalance_bars(ticks, config)
+    bars = build_bars(ticks, config)
     events = select_events(bars, config)
     labeled = apply_triple_barrier(bars, events, config)
     splits = list(cpcv_splits(labeled, config))
@@ -30,12 +30,17 @@ def _median(series) -> float | None:
     return None if value != value else float(value)
 
 
-def _summarize(bars, events, labeled, splits, config: PipelineConfig, day: date | None) -> dict:
+def _summarize(bars, events, labeled, splits, config: PipelineConfig, day: date | None, ticks=None) -> dict:
     close_reasons = None if bars.empty or "close_reason" not in bars else bars["close_reason"].value_counts().to_dict()
+    daily_notional = None if ticks is None else daily_quote_volume(ticks)
+    dollar_d = None if ticks is None or config.bar_type != "dollar" else dollar_bar_threshold(ticks, config)
     return {
         "symbol": config.symbol,
         "day": None if day is None else day.isoformat(),
         "bar_type": config.bar_type,
+        "dollar_bar_divisor": config.dollar_bar_divisor,
+        "daily_quote_notional": daily_notional,
+        "dollar_bar_threshold": dollar_d,
         "event_mode": config.event_mode,
         "cusum_k": config.cusum_k,
         "initial_expected_ticks": config.initial_expected_ticks,
@@ -60,7 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--date", default=None, help="UTC day YYYY-MM-DD; default = latest published")
     parser.add_argument("--data-dir", default="data")
-    parser.add_argument("--bar-type", default="dollar_imbalance")
+    parser.add_argument(
+        "--bar-type",
+        default="dollar",
+        choices=("dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+    )
     parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
     args = parser.parse_args(argv)
 
@@ -76,10 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     bars, events, labeled, splits = run_from_ticks(ticks, config)
 
     dest.mkdir(parents=True, exist_ok=True)
-    bars.to_csv(dest / f"{config.symbol}_{day}_imbalance_bars.csv", index=False)
+    bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
     labeled.to_csv(dest / f"{config.symbol}_{day}_labels.csv", index=False)
 
-    summary = _summarize(bars, events, labeled, splits, config, day)
+    summary = _summarize(bars, events, labeled, splits, config, day, ticks)
     summary["n_ticks"] = int(len(ticks))
     print(json.dumps(summary, indent=2, default=str))
     (dest / f"{config.symbol}_{day}_summary.json").write_text(

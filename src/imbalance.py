@@ -1,4 +1,4 @@
-"""AFML imbalance bars from aggressor-signed ticks."""
+"""Dollar bars and AFML imbalance bars from aggressor-signed ticks."""
 
 from __future__ import annotations
 
@@ -55,6 +55,111 @@ def _clip_imbalance_frac(raw: float, config: PipelineConfig) -> float:
     return float(min(max(raw, config.min_abs_2p1), config.max_abs_2p1))
 
 
+def _tick_arrays(ticks: pd.DataFrame) -> _TickArrays:
+    return _TickArrays(
+        ts=ticks["timestamp"].to_numpy(),
+        price=ticks["price"].to_numpy(dtype=np.float64),
+        qty=ticks["qty"].to_numpy(dtype=np.float64),
+        quote=ticks["quote_qty"].to_numpy(dtype=np.float64),
+        side=ticks["side"].to_numpy(dtype=np.int8),
+    )
+
+
+def _finalize_bars(rows: list[list[object]]) -> pd.DataFrame:
+    bars = pd.DataFrame(rows, columns=BAR_COLUMNS)
+    if bars.empty:
+        return bars
+    bars["start_ts"] = pd.to_datetime(bars["start_ts"], utc=True)
+    bars["end_ts"] = pd.to_datetime(bars["end_ts"], utc=True)
+    bars["log_ret"] = np.log(bars["close"]).diff()
+    bars["bar_id"] = np.arange(len(bars), dtype=np.int64)
+    bars["duration_s"] = (bars["end_ts"] - bars["start_ts"]).dt.total_seconds()
+    return bars
+
+
+def _bar_row(
+    arrays: _TickArrays,
+    start: int,
+    end: int,
+    n_ticks: int,
+    buy_ticks: int,
+    theta: float,
+    threshold: float,
+    reason: str,
+) -> list[object]:
+    sl = slice(start, end)
+    px = arrays.price[sl]
+    qty = arrays.qty[sl]
+    quote = arrays.quote[sl]
+    side = arrays.side[sl]
+    buy = side > 0
+    return [
+        arrays.ts[start],
+        arrays.ts[end - 1],
+        px[0],
+        px.max(),
+        px.min(),
+        px[-1],
+        qty.sum(),
+        quote.sum(),
+        n_ticks,
+        buy_ticks,
+        qty[buy].sum(),
+        qty[~buy].sum(),
+        theta,
+        threshold,
+        reason,
+    ]
+
+
+def _empty_bars() -> pd.DataFrame:
+    return pd.DataFrame(columns=BAR_COLUMNS + ["log_ret", "bar_id", "duration_s"])
+
+
+def daily_quote_volume(ticks: pd.DataFrame) -> float:
+    return float(ticks["quote_qty"].sum()) if not ticks.empty else 0.0
+
+
+def dollar_bar_threshold(ticks: pd.DataFrame, config: PipelineConfig) -> float:
+    """D = that UTC day's Binance quote notional / 50."""
+    return daily_quote_volume(ticks) / float(config.dollar_bar_divisor)
+
+
+def build_dollar_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    """Close a bar whenever cumulative quote volume reaches D = daily_notional / 50."""
+    if ticks.empty:
+        return _empty_bars()
+    arrays = _tick_arrays(ticks)
+    threshold = dollar_bar_threshold(ticks, config)
+    if threshold <= 0:
+        return _empty_bars()
+
+    rows: list[list[object]] = []
+    start = 0
+    n_ticks = 0
+    buy_ticks = 0
+    signed_flow = 0.0
+    cum_quote = 0.0
+    for i in range(len(arrays.quote)):
+        cum_quote += arrays.quote[i]
+        signed_flow += arrays.side[i] * arrays.quote[i]
+        n_ticks += 1
+        buy_ticks += int(arrays.side[i] > 0)
+        if cum_quote < threshold:
+            continue
+        rows.append(_bar_row(arrays, start, i + 1, n_ticks, buy_ticks, signed_flow, threshold, "dollar"))
+        start = i + 1
+        n_ticks = 0
+        buy_ticks = 0
+        signed_flow = 0.0
+        cum_quote = 0.0
+    if n_ticks > 0:
+        rows.append(
+            _bar_row(arrays, start, len(arrays.quote), n_ticks, buy_ticks, signed_flow, threshold, "eod")
+        )
+    return _finalize_bars(rows)
+
+
 def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     """Sample bars when |signed flow| exceeds expected imbalance.
 
@@ -66,13 +171,7 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
     if ticks.empty:
         return _empty_bars()
 
-    arrays = _TickArrays(
-        ts=ticks["timestamp"].to_numpy(),
-        price=ticks["price"].to_numpy(dtype=np.float64),
-        qty=ticks["qty"].to_numpy(dtype=np.float64),
-        quote=ticks["quote_qty"].to_numpy(dtype=np.float64),
-        side=ticks["side"].to_numpy(dtype=np.int8),
-    )
+    arrays = _tick_arrays(ticks)
     flow = _signed_flow(arrays.price, arrays.qty, arrays.side, config.bar_type)
     abs_flow = np.abs(flow)
     alpha = 2.0 / (config.imbalance_ewma_span + 1.0)
@@ -112,32 +211,19 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
         if close_reason is None:
             continue
 
-        sl = slice(start, i + 1)
-        px = arrays.price[sl]
-        qty = arrays.qty[sl]
-        quote = arrays.quote[sl]
-        side = arrays.side[sl]
-        buy = side > 0
         mean_size = size_sum / n_ticks
         raw_2p1 = abs(2.0 * (buy_ticks / n_ticks) - 1.0)
         rows.append(
-            [
-                arrays.ts[start],
-                arrays.ts[i],
-                px[0],
-                px.max(),
-                px.min(),
-                px[-1],
-                qty.sum(),
-                quote.sum(),
+            _bar_row(
+                arrays,
+                start,
+                i + 1,
                 n_ticks,
                 buy_ticks,
-                qty[buy].sum(),
-                qty[~buy].sum(),
                 theta,
                 threshold_now() if warmed else float(n_ticks),
                 close_reason,
-            ]
+            )
         )
         if close_reason != "max_ticks":
             expected_ticks = _ewma_update(expected_ticks, float(n_ticks), alpha)
@@ -154,17 +240,10 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
         size_sum = 0.0
         start = i + 1
 
-    bars = pd.DataFrame(rows, columns=BAR_COLUMNS)
-    if bars.empty:
-        return bars
-    bars["start_ts"] = pd.to_datetime(bars["start_ts"], utc=True)
-    bars["end_ts"] = pd.to_datetime(bars["end_ts"], utc=True)
-    bars["log_ret"] = np.log(bars["close"]).diff()
-    bars["bar_id"] = np.arange(len(bars), dtype=np.int64)
-    bars["duration_s"] = (bars["end_ts"] - bars["start_ts"]).dt.total_seconds()
-    return bars
+    return _finalize_bars(rows)
 
 
-def _empty_bars() -> pd.DataFrame:
-    cols = BAR_COLUMNS + ["log_ret", "bar_id", "duration_s"]
-    return pd.DataFrame(columns=cols)
+def build_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    if config.bar_type == "dollar":
+        return build_dollar_bars(ticks, config)
+    return build_imbalance_bars(ticks, config)
