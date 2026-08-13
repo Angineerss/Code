@@ -21,10 +21,10 @@ def apply_triple_barrier(
     events: pd.DataFrame,
     config: PipelineConfig,
 ) -> pd.DataFrame:
-    """Label each CUSUM event by first touch of TP / SL / vertical barrier.
+    """Label each event by first touch of TP / SL / vertical barrier.
 
-    Meta target ``y_meta`` is 1 only on take-profit. Stop-loss, timeout, and
-    simultaneous touches are 0 (high-precision job left to the meta model).
+    ``events.side`` is the primary bet. Meta target ``y_meta`` is 1 only on
+    take-profit. Stop-loss, timeout, and simultaneous touches are 0.
     """
     if events.empty or bars.empty:
         return events.assign(
@@ -85,6 +85,7 @@ def apply_triple_barrier(
                 "bar_id": int(ev.bar_id),
                 "event_ts": ev.event_ts,
                 "side": side,
+                "cusum_side": None if not hasattr(ev, "cusum_side") else int(ev.cusum_side),
                 "threshold": float(ev.threshold),
                 "t1_bar_id": int(bar_id[exit_pos]),
                 "t1_ts": end_ts[exit_pos],

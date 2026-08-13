@@ -1,4 +1,7 @@
-"""Symmetric CUSUM filter on imbalance-bar log prices (AFML)."""
+"""Symmetric CUSUM event filter on imbalance-bar log prices (AFML).
+
+CUSUM only selects *when* to consider a bet. Direction comes from the primary model.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .config import PipelineConfig
+from .primary import apply_primary
 
 
 def ewm_std(values: np.ndarray, span: int) -> np.ndarray:
@@ -29,25 +33,24 @@ def cusum_threshold(log_ret: np.ndarray, config: PipelineConfig) -> np.ndarray:
 
 
 def every_bar_events(bars: pd.DataFrame) -> pd.DataFrame:
-    """Use each imbalance-bar close as an event; side = order-flow sign."""
+    """Use each imbalance-bar close as an event time (no primary side yet)."""
     if bars.empty:
-        return pd.DataFrame(columns=["bar_id", "event_ts", "side", "threshold"])
-    side = np.sign(bars["signed_flow"].to_numpy(dtype=float)).astype(np.int8)
-    out = pd.DataFrame(
+        return pd.DataFrame(columns=["bar_id", "event_ts", "threshold"])
+    return pd.DataFrame(
         {
             "bar_id": bars["bar_id"].to_numpy(),
             "event_ts": pd.to_datetime(bars["end_ts"], utc=True),
-            "side": side,
             "threshold": bars["threshold"].to_numpy(dtype=float),
         }
     )
-    return out.loc[out["side"] != 0].reset_index(drop=True)
 
 
 def select_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     if config.event_mode == "every_bar":
-        return every_bar_events(bars)
-    return cusum_events(bars, config)
+        times = every_bar_events(bars)
+    else:
+        times = cusum_events(bars, config)
+    return apply_primary(bars, times, config)
 
 
 def cusum_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
@@ -55,10 +58,10 @@ def cusum_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
 
     S+_t = max(0, S+_{t-1} + y_t), S-_t = min(0, S-_{t-1} + y_t),
     with y_t = Δ log price. Only the side that crosses ±h is reset to 0.
-    ``side`` is that crossing: +1 up, -1 down.
+    ``cusum_side`` is the crossing that triggered the filter, not the primary bet.
     """
     if bars.empty:
-        return pd.DataFrame(columns=["bar_id", "event_ts", "side", "threshold"])
+        return pd.DataFrame(columns=["bar_id", "event_ts", "threshold", "cusum_side"])
 
     close = bars["close"].to_numpy(dtype=float)
     log_p = np.log(close)
@@ -76,14 +79,14 @@ def cusum_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
         s_neg = min(0.0, s_neg + delta[i])
         level = h[i] if np.isfinite(h[i]) else h[i - 1]
         if s_neg < -level:
-            rows.append([int(bar_id[i]), ts[i], -1, float(level)])
+            rows.append([int(bar_id[i]), ts[i], float(level), -1])
             s_neg = 0.0
         elif s_pos > level:
-            rows.append([int(bar_id[i]), ts[i], 1, float(level)])
+            rows.append([int(bar_id[i]), ts[i], float(level), 1])
             s_pos = 0.0
 
-    events = pd.DataFrame(rows, columns=["bar_id", "event_ts", "side", "threshold"])
+    events = pd.DataFrame(rows, columns=["bar_id", "event_ts", "threshold", "cusum_side"])
     if not events.empty:
         events["event_ts"] = pd.to_datetime(events["event_ts"], utc=True)
-        events["side"] = events["side"].astype(np.int8)
+        events["cusum_side"] = events["cusum_side"].astype(np.int8)
     return events

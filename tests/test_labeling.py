@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.barriers import apply_triple_barrier
-from src.cusum import cusum_events, every_bar_events
+from src.cusum import cusum_events, every_bar_events, select_events
 from src.pipeline import run_from_ticks
 from tests.helpers import make_ticks, tight_config
 
@@ -28,7 +28,8 @@ def test_cusum_detects_up_drift():
     bars = _monotonic_bars()
     events = cusum_events(bars, tight_config(cusum_mode="absolute", cusum_absolute_h=0.01))
     assert not events.empty
-    assert set(events["side"].unique()) == {1}
+    assert set(events["cusum_side"].unique()) == {1}
+    assert "side" not in events.columns
 
 
 def test_cusum_resets_only_the_crossed_side():
@@ -62,7 +63,7 @@ def test_cusum_resets_only_the_crossed_side():
             expected.append((i, 1))
             s_pos = 0.0
     assert expected
-    assert list(zip(events["bar_id"].tolist(), events["side"].tolist())) == expected
+    assert list(zip(events["bar_id"].tolist(), events["cusum_side"].tolist())) == expected
 
 
 def test_vol_scaled_cusum_lower_k_has_higher_recall():
@@ -71,6 +72,22 @@ def test_vol_scaled_cusum_lower_k_has_higher_recall():
     strict = cusum_events(bars, tight_config(cusum_mode="ewm_std", cusum_k=1.0, cusum_vol_span=10))
     assert not loose.empty
     assert len(loose) >= len(strict)
+
+
+def test_primary_side_is_flow_not_cusum_direction():
+    bars = _monotonic_bars()
+    bars["signed_flow"] = -1.0
+    events = select_events(
+        bars,
+        tight_config(
+            cusum_mode="absolute",
+            cusum_absolute_h=0.01,
+            primary_type="rule_bar_flow_sign",
+        ),
+    )
+    assert not events.empty
+    assert (events["cusum_side"] == 1).all()
+    assert (events["side"] == -1).all()
 
 
 def test_triple_barrier_take_profit_and_timeout():

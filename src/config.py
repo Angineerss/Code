@@ -9,6 +9,7 @@ BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 SessionType = Literal["warmup", "research"]
+PrimaryType = Literal["rule_bar_flow_sign", "rule_cusum_sign"]
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class PipelineConfig:
     expected_imbalance_min_mult: float = 0.5
     expected_imbalance_max_mult: float = 2.0
 
-    # --- event filter ---
+    # --- event filter (before the primary; not a trading signal) ---
     event_mode: EventMode = "cusum"
     cusum_mode: CusumMode = "ewm_std"
     cusum_vol_span: int = 50
@@ -55,7 +56,7 @@ class PipelineConfig:
     timeout_y: int = 0
 
     # --- models / validation (ratios TBD after horizon is locked) ---
-    primary_type: str = "rule_cusum_sign"
+    primary_type: PrimaryType = "rule_bar_flow_sign"
     primary_objective: str = "high_recall"
     meta_model: str = "random_forest"
     cv_method: str = "cpcv"

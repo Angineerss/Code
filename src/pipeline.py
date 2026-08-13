@@ -62,6 +62,15 @@ def _median(series) -> float | None:
     return None if value != value else float(value)
 
 
+def _primary_cusum_agree(labeled) -> float | None:
+    if labeled is None or labeled.empty or "cusum_side" not in labeled.columns:
+        return None
+    both = labeled["cusum_side"].notna() & labeled["side"].notna()
+    if not both.any():
+        return None
+    return float((labeled.loc[both, "side"] == labeled.loc[both, "cusum_side"]).mean())
+
+
 def _summarize(
     bars,
     events,
@@ -94,6 +103,7 @@ def _summarize(
         "ewma_state": None if state is None else asdict(state),
         "event_mode": config.event_mode,
         "cusum_k": config.cusum_k,
+        "primary": config.primary_type,
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
         "n_labels": int(len(labeled)),
@@ -102,10 +112,10 @@ def _summarize(
         "close_reasons": close_reasons,
         "y_meta_rate": None if labeled.empty else float(labeled["y_meta"].mean()),
         "touch_types": None if labeled.empty else labeled["touch_type"].value_counts().to_dict(),
+        "primary_cusum_agree_rate": _primary_cusum_agree(labeled),
         "n_cpcv_paths": len(splits),
         "purge_bars": config.resolved_purge_bars(),
         "embargo_bars": config.resolved_embargo_bars(),
-        "primary": config.primary_type,
         "meta_model": config.meta_model,
     }
 
@@ -121,6 +131,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
     )
     parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
+    parser.add_argument(
+        "--primary",
+        default="rule_bar_flow_sign",
+        choices=("rule_bar_flow_sign", "rule_cusum_sign"),
+        help="Primary side after the event filter. Default = bar signed-flow sign, not CUSUM direction.",
+    )
     parser.add_argument("--session", default="research", choices=("warmup", "research"))
     parser.add_argument(
         "--ewma-state",
@@ -134,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         bar_type=args.bar_type,
         event_mode=args.event_mode,
         session=args.session,
-        primary_type="rule_bar_flow_sign" if args.event_mode == "every_bar" else "rule_cusum_sign",
+        primary_type=args.primary,
     )
     dest = Path(args.data_dir)
     day = date.fromisoformat(args.date) if args.date else None
