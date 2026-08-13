@@ -24,6 +24,28 @@ def cusum_threshold(log_ret: np.ndarray, config: PipelineConfig) -> np.ndarray:
     return config.cusum_k * vol
 
 
+def every_bar_events(bars: pd.DataFrame) -> pd.DataFrame:
+    """Use each imbalance-bar close as an event; side = order-flow sign."""
+    if bars.empty:
+        return pd.DataFrame(columns=["bar_id", "event_ts", "side", "threshold"])
+    side = np.sign(bars["signed_flow"].to_numpy(dtype=float)).astype(np.int8)
+    out = pd.DataFrame(
+        {
+            "bar_id": bars["bar_id"].to_numpy(),
+            "event_ts": pd.to_datetime(bars["end_ts"], utc=True),
+            "side": side,
+            "threshold": bars["threshold"].to_numpy(dtype=float),
+        }
+    )
+    return out.loc[out["side"] != 0].reset_index(drop=True)
+
+
+def select_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    if config.event_mode == "every_bar":
+        return every_bar_events(bars)
+    return cusum_events(bars, config)
+
+
 def cusum_events(bars: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     """Emit an event when cumulative log-price drift exceeds h.
 

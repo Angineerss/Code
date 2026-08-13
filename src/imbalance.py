@@ -9,6 +9,24 @@ import pandas as pd
 
 from .config import BarType, PipelineConfig
 
+BAR_COLUMNS = [
+    "start_ts",
+    "end_ts",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "quote_volume",
+    "tick_count",
+    "buy_ticks",
+    "buy_volume",
+    "sell_volume",
+    "signed_flow",
+    "threshold",
+    "close_reason",
+]
+
 
 @dataclass(frozen=True)
 class _TickArrays:
@@ -33,12 +51,17 @@ def _signed_flow(price: np.ndarray, qty: np.ndarray, side: np.ndarray, bar_type:
     raise ValueError(f"Unknown bar_type: {bar_type}")
 
 
-def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    """Sample bars when |signed flow| exceeds the AFML expected-imbalance threshold.
+def _clip_imbalance_frac(raw: float, config: PipelineConfig) -> float:
+    return float(min(max(raw, config.min_abs_2p1), config.max_abs_2p1))
 
-    Expected ticks per bar and expected signed flow per tick are EWMA-updated
-    after each closed bar. The first bar is forced closed at
-    ``initial_expected_ticks`` so the EWMA has a seed.
+
+def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    """Sample bars when |signed flow| exceeds expected imbalance.
+
+    Expected imbalance follows AFML: ``E[T] * |2P[buy]-1| * E[size]``.
+    ``P[buy]`` is the tick buy fraction inside each closed bar, *not* the
+    hitting-time |θ|/T. Using |θ|/T feeds the close condition back into the
+    next threshold and makes bars progressively coarser.
     """
     if ticks.empty:
         return _empty_bars()
@@ -51,24 +74,42 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
         side=ticks["side"].to_numpy(dtype=np.int8),
     )
     flow = _signed_flow(arrays.price, arrays.qty, arrays.side, config.bar_type)
+    abs_flow = np.abs(flow)
     alpha = 2.0 / (config.imbalance_ewma_span + 1.0)
 
     expected_ticks = float(config.initial_expected_ticks)
-    expected_flow_per_tick = np.nan
+    expected_size = np.nan
+    expected_2p1 = np.nan
     theta = 0.0
     start = 0
     n_ticks = 0
+    buy_ticks = 0
+    size_sum = 0.0
+    warmed = False
     rows: list[list[object]] = []
+
+    def threshold_now() -> float:
+        if not warmed:
+            return float("inf")
+        frac = _clip_imbalance_frac(expected_2p1, config)
+        return expected_ticks * frac * expected_size
 
     for i in range(len(flow)):
         theta += flow[i]
         n_ticks += 1
-        warmup = np.isnan(expected_flow_per_tick)
-        threshold = expected_ticks if warmup else expected_ticks * abs(expected_flow_per_tick)
-        close_bar = (warmup and n_ticks >= config.initial_expected_ticks) or (
-            not warmup and abs(theta) >= max(threshold, 1e-12)
-        )
-        if not close_bar:
+        buy_ticks += int(arrays.side[i] > 0)
+        size_sum += abs_flow[i]
+
+        max_ticks = max(int(expected_ticks * config.max_ticks_mult), config.initial_expected_ticks)
+        if not warmed:
+            close_reason = "warmup" if n_ticks >= config.initial_expected_ticks else None
+        elif abs(theta) >= max(threshold_now(), 1e-12):
+            close_reason = "imbalance"
+        elif n_ticks >= max_ticks:
+            close_reason = "max_ticks"
+        else:
+            close_reason = None
+        if close_reason is None:
             continue
 
         sl = slice(start, i + 1)
@@ -77,6 +118,8 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
         quote = arrays.quote[sl]
         side = arrays.side[sl]
         buy = side > 0
+        mean_size = size_sum / n_ticks
+        raw_2p1 = abs(2.0 * (buy_ticks / n_ticks) - 1.0)
         rows.append(
             [
                 arrays.ts[start],
@@ -88,66 +131,40 @@ def build_imbalance_bars(ticks: pd.DataFrame, config: PipelineConfig) -> pd.Data
                 qty.sum(),
                 quote.sum(),
                 n_ticks,
+                buy_ticks,
                 qty[buy].sum(),
                 qty[~buy].sum(),
                 theta,
-                threshold,
+                threshold_now() if warmed else float(n_ticks),
+                close_reason,
             ]
         )
-        expected_ticks = _ewma_update(expected_ticks, float(n_ticks), alpha)
-        expected_flow_per_tick = (
-            float(theta / n_ticks)
-            if np.isnan(expected_flow_per_tick)
-            else _ewma_update(expected_flow_per_tick, float(theta / n_ticks), alpha)
-        )
+        if close_reason != "max_ticks":
+            expected_ticks = _ewma_update(expected_ticks, float(n_ticks), alpha)
+            expected_ticks = min(
+                max(expected_ticks, config.initial_expected_ticks * config.expected_ticks_min_mult),
+                config.initial_expected_ticks * config.expected_ticks_max_mult,
+            )
+            expected_size = mean_size if np.isnan(expected_size) else _ewma_update(expected_size, mean_size, alpha)
+            expected_2p1 = raw_2p1 if np.isnan(expected_2p1) else _ewma_update(expected_2p1, raw_2p1, alpha)
+        warmed = True
         theta = 0.0
         n_ticks = 0
+        buy_ticks = 0
+        size_sum = 0.0
         start = i + 1
 
-    bars = pd.DataFrame(
-        rows,
-        columns=[
-            "start_ts",
-            "end_ts",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "quote_volume",
-            "tick_count",
-            "buy_volume",
-            "sell_volume",
-            "signed_flow",
-            "threshold",
-        ],
-    )
+    bars = pd.DataFrame(rows, columns=BAR_COLUMNS)
     if bars.empty:
         return bars
     bars["start_ts"] = pd.to_datetime(bars["start_ts"], utc=True)
     bars["end_ts"] = pd.to_datetime(bars["end_ts"], utc=True)
     bars["log_ret"] = np.log(bars["close"]).diff()
     bars["bar_id"] = np.arange(len(bars), dtype=np.int64)
+    bars["duration_s"] = (bars["end_ts"] - bars["start_ts"]).dt.total_seconds()
     return bars
 
 
 def _empty_bars() -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=[
-            "start_ts",
-            "end_ts",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "quote_volume",
-            "tick_count",
-            "buy_volume",
-            "sell_volume",
-            "signed_flow",
-            "threshold",
-            "log_ret",
-            "bar_id",
-        ]
-    )
+    cols = BAR_COLUMNS + ["log_ret", "bar_id", "duration_s"]
+    return pd.DataFrame(columns=cols)

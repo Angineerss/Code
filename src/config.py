@@ -7,6 +7,7 @@ from typing import Literal
 
 BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
+EventMode = Literal["cusum", "every_bar"]
 
 
 @dataclass(frozen=True)
@@ -15,20 +16,29 @@ class PipelineConfig:
     symbol: str = "BTCUSDT"
     market: str = "spot"
     data_type: str = "aggTrades"
-    # One complete UTC calendar day. Date is chosen at runtime (latest available).
     timestamp_storage: str = "UTC"
-    session_filter: str | None = None  # crypto trades 24/7; no equity RTH filter
+    session_filter: str | None = None  # crypto trades 24/7
 
-    # --- imbalance bars (AFML ch.2) ---
+    # --- imbalance bars (AFML ch.2), tuned for microstructure density ---
     bar_type: BarType = "dollar_imbalance"
     imbalance_ewma_span: int = 50
-    initial_expected_ticks: int = 1_000
+    initial_expected_ticks: int = 80
+    # Clip |2P[buy]-1| when forming the threshold. A ceiling stops one-sided
+    # bars from inflating the next bar; a floor stops 1-tick bars when P≈0.5.
+    min_abs_2p1: float = 0.05
+    max_abs_2p1: float = 0.15
+    # Force-close if the imbalance never hits (keeps the information clock moving).
+    max_ticks_mult: float = 4.0
+    # Keep E[T] from drifting after long max-tick bars.
+    expected_ticks_min_mult: float = 0.5
+    expected_ticks_max_mult: float = 2.0
 
-    # --- CUSUM event filter (high-recall primary) ---
+    # --- event filter ---
+    event_mode: EventMode = "cusum"
     cusum_mode: CusumMode = "ewm_std"
     cusum_vol_span: int = 50
-    cusum_k: float = 1.0  # h = k * EWM std of bar log-returns
-    cusum_absolute_h: float = 0.001  # used only if cusum_mode == "absolute"
+    cusum_k: float = 0.25  # high-recall; h = k * EWM std of bar log-returns
+    cusum_absolute_h: float = 0.001
 
     # --- triple barrier / meta label ---
     pt: float = 1.0
@@ -45,8 +55,8 @@ class PipelineConfig:
     cv_method: str = "cpcv"
     n_cpcv_groups: int = 5
     n_cpcv_test_groups: int = 2
-    purge_bars: int | None = None  # TBD; default in runner = vertical_bars
-    embargo_bars: int | None = None  # TBD; default in runner = vertical_bars
+    purge_bars: int | None = None
+    embargo_bars: int | None = None
 
     extra: dict = field(default_factory=dict)
 

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.barriers import apply_triple_barrier
-from src.cusum import cusum_events
+from src.cusum import cusum_events, every_bar_events
 from src.pipeline import run_from_ticks
 from tests.helpers import make_ticks, tight_config
 
@@ -56,3 +56,13 @@ def test_pipeline_on_synthetic_ticks():
     assert len(splits) >= 1
     train, test = splits[0]
     assert len(np.intersect1d(train, test)) == 0
+
+
+def test_every_bar_events_follow_order_flow():
+    ticks = make_ticks(n=200, buy_prob=1.0)
+    bars, events, labeled, splits = run_from_ticks(
+        ticks, tight_config(event_mode="every_bar", bar_type="tick_imbalance")
+    )
+    assert len(events) == len(bars)
+    assert set(events["side"].unique()) == {1}
+    assert len(every_bar_events(bars)) == len(bars)
