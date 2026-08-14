@@ -7,6 +7,7 @@ from src.config import PipelineConfig
 
 def test_is_oos_cut_is_contiguous_and_covers_universe():
     config = PipelineConfig()
+    assert config.archive_start == date(2017, 8, 17)
     assert config.universe_start == date(2024, 1, 1)
     assert config.is_end == date(2025, 12, 31)
     assert config.oos_start == date(2026, 1, 1)

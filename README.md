@@ -11,7 +11,8 @@
 | 거래소 | Binance spot |
 | 심볼 | `BTCUSDT` (기본값, CLI로 변경) |
 | 기간 | 전체 시계 **2024-01-01 ~ 2026-08-13** UTC (Vision aggTrades). IS/OOS는 아래 컷 |
-| 원본 | `aggTrades` (가격·시각이 같은 체결을 묶은 틱) |
+| 원본 | `aggTrades` (가격·시각이 같은 체결을 묶은 틱). Vision 아카이브는 **2017-08-17**부터 수집 가능 |
+| 연구 컷 | IS/OOS는 아래. 아카이브 전체와 연구 구간은 별개 |
 | 가격 | 체결가 그대로. 주식 adjusted/분할 개념 없음 |
 | 거래량 | base `qty`, 달러 흐름은 `price * qty` |
 | 공격자 | `is_buyer_maker=True` → 적극 매도(`side=-1`), False → 적극 매수(`+1`) |
@@ -62,6 +63,8 @@ Binance aggTrades
 ```bash
 pip install -r requirements.txt
 pytest
+# Vision aggTrades archive from listing (monthly zips + open-month dailies; ~58GB+)
+python scripts/download_aggtrades_archive.py --data-dir data/aggtrades
 python -m src --symbol BTCUSDT --date 2024-01-15
 python -m src --symbol BTCUSDT --date 2024-01-16
 python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
@@ -69,6 +72,8 @@ python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
 
 산출물 (`data/`):
 
+- `aggtrades/monthly/{SYMBOL}-aggTrades-YYYY-MM.zip` — 상장 이후 월간 아카이브
+- `aggtrades/daily/{SYMBOL}-aggTrades-YYYY-MM-DD.zip` — 미마감 월 일간
 - `{SYMBOL}_{day}_bars.csv`
 - `{SYMBOL}_{day}_labels.csv`
 - `{SYMBOL}_{day}_ewma_state.json` (다음 날 EWMA 이어받기)

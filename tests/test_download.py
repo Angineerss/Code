@@ -1,8 +1,9 @@
+from datetime import date
 from io import BytesIO
 
 import pandas as pd
 
-from src.download import parse_aggtrades_csv
+from src.download import months_from_to, parse_aggtrades_csv
 
 
 def test_parse_aggtrades_ms_and_aggressor_side():
@@ -24,3 +25,10 @@ def test_parse_aggtrades_microseconds():
     ts = df["timestamp"].iloc[0]
     assert ts.floor("s") == pd.Timestamp("2025-01-01", tz="UTC")
     assert df["side"].iloc[0] == 1
+
+
+def test_months_from_to_includes_endpoints():
+    months = months_from_to(date(2017, 8, 17), date(2018, 1, 5))
+    assert months[0] == (2017, 8)
+    assert months[-1] == (2018, 1)
+    assert len(months) == 6

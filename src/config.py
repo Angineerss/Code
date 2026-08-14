@@ -22,7 +22,9 @@ class PipelineConfig:
     data_type: str = "aggTrades"
     timestamp_storage: str = "UTC"
     session_filter: str | None = None  # crypto trades 24/7
-    # Full tick universe (Vision aggTrades). OOS end is last published day at lock time.
+    # Vision archive from BTCUSDT listing; research IS/OOS cut is separate below.
+    archive_start: date = date(2017, 8, 17)
+    # Research tick universe for IS/OOS. OOS end is last published day at lock time.
     universe_start: date = date(2024, 1, 1)
     is_end: date = date(2025, 12, 31)
     oos_start: date = date(2026, 1, 1)
