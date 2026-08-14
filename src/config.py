@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Literal
 
 BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 SessionType = Literal["warmup", "research"]
+SplitName = Literal["is", "oos", "out_of_universe"]
 PrimaryType = Literal["rule_bar_flow_sign", "rule_cusum_sign"]
 
 
@@ -20,6 +22,11 @@ class PipelineConfig:
     data_type: str = "aggTrades"
     timestamp_storage: str = "UTC"
     session_filter: str | None = None  # crypto trades 24/7
+    # Full tick universe (Vision aggTrades). OOS end is last published day at lock time.
+    universe_start: date = date(2024, 1, 1)
+    is_end: date = date(2025, 12, 31)
+    oos_start: date = date(2026, 1, 1)
+    oos_end: date = date(2026, 8, 13)
 
     # --- imbalance bars ---
     bar_type: BarType = "dollar_imbalance"
@@ -67,8 +74,29 @@ class PipelineConfig:
 
     extra: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.oos_start != self.is_end + timedelta(days=1):
+            raise ValueError("OOS must start the UTC day after IS ends")
+        if self.oos_start > self.oos_end:
+            raise ValueError("OOS range is empty")
+        if self.universe_start > self.is_end:
+            raise ValueError("IS range is empty")
+
     def resolved_purge_bars(self) -> int:
         return self.vertical_bars if self.purge_bars is None else self.purge_bars
 
     def resolved_embargo_bars(self) -> int:
         return self.vertical_bars if self.embargo_bars is None else self.embargo_bars
+
+    def split_for_day(self, day: date) -> SplitName:
+        if day < self.universe_start or day > self.oos_end:
+            return "out_of_universe"
+        if day <= self.is_end:
+            return "is"
+        return "oos"
+
+    def is_range(self) -> tuple[date, date]:
+        return self.universe_start, self.is_end
+
+    def oos_range(self) -> tuple[date, date]:
+        return self.oos_start, self.oos_end
