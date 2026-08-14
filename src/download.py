@@ -55,8 +55,12 @@ def _download_to(path: Path, url: str, timeout: int = 600) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".partial")
     req = Request(url, headers={"User-Agent": "structlabel/0.1"})
-    with urlopen(req, timeout=timeout) as resp:
-        tmp.write_bytes(resp.read())
+    with urlopen(req, timeout=timeout) as resp, tmp.open("wb") as out:
+        while True:
+            chunk = resp.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
     tmp.replace(path)
     return path
 
@@ -67,7 +71,7 @@ def download_aggtrades_month(
     month: int,
     dest_dir: Path,
     market: str = "spot",
-    timeout: int = 600,
+    timeout: int = 1800,
     skip_existing: bool = True,
 ) -> Path | None:
     zip_path = dest_dir / f"{symbol.upper()}-aggTrades-{year:04d}-{month:02d}.zip"
@@ -224,24 +228,33 @@ def download_aggtrades_archive(
         if use_monthly:
             before = monthly_dir / f"{symbol.upper()}-aggTrades-{label}.zip"
             existed = before.exists() and before.stat().st_size > 0
+            print(f"[monthly] {label} ...", flush=True)
             path = download_aggtrades_month(symbol, year, month, monthly_dir, market)
             if path is None:
                 missing_months.append(label)
+                print(f"[monthly] {label} MISSING", flush=True)
             elif existed:
                 skipped_months.append(label)
+                print(f"[monthly] {label} skip ({path.stat().st_size} bytes)", flush=True)
             else:
                 downloaded_months.append(label)
+                print(f"[monthly] {label} ok ({path.stat().st_size} bytes)", flush=True)
             continue
         # Partial final month: daily files from max(start, month_start) through end.
         day = max(start, date(year, month, 1))
         while day <= end:
             before = daily_dir / f"{symbol.upper()}-aggTrades-{day.isoformat()}.zip"
             existed = before.exists() and before.stat().st_size > 0
+            print(f"[daily] {day.isoformat()} ...", flush=True)
             path = download_aggtrades_day(symbol, day, daily_dir, market)
             if path is None:
                 missing_days.append(day.isoformat())
+                print(f"[daily] {day.isoformat()} MISSING", flush=True)
             elif not existed:
                 downloaded_days.append(day.isoformat())
+                print(f"[daily] {day.isoformat()} ok ({path.stat().st_size} bytes)", flush=True)
+            else:
+                print(f"[daily] {day.isoformat()} skip", flush=True)
             day += timedelta(days=1)
 
     return {
