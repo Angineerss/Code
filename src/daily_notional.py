@@ -191,10 +191,9 @@ def prior_year_notional(
     if listing_date is not None:
         start = max(start, listing_date)
     if start > end:
-        raise FileNotFoundError(
-            f"No prior-notional window for {symbol} as_of={as_of}: "
-            f"clamped start {start} > end {end}"
-        )
+        # Listing day (or earlier): no prior UTC day exists. Bootstrap D from as_of
+        # itself so the first archive day can still build bars (warmup only).
+        start = end = as_of
     daily = load_or_fetch_daily_quote_notional(symbol, start, end, cache_dir)
     if daily.empty:
         raise FileNotFoundError(f"No daily quote volume for {symbol} in {start}..{end}")
