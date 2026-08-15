@@ -11,6 +11,7 @@
 - CUSUM = **시점** 필터 (바 종가 로그수익의 한쪽 누적 S^\pm가 1\sigma 돌파)
 - Primary = **방향** = 이벤트 바 `sign(signed_flow)` (taker 달러 불균형)
 - **동의 게이트:** `cusum_side == side` 인 이벤트만 남김 (어긋나면 폐기)
+- **Meta 피처 (잠금):** `flow_strength = |θ|/E[θ]`, `cusum_excess_ratio = |S|/h` (넘긴 직후, 리셋 전)
 - 검증 = 트리플 베리어 메타 라벨 (`y_meta`). 인과(“가격이 taker 때문인가”)는 이 파이프라인의 범위 밖
 
 ## 확정 스펙
@@ -46,7 +47,8 @@
 | 이벤트 필터     | 불균형 바 종가 경로에 대칭 CUSUM. 시점 필터. `S±`는 AFML 식, 넘은 쪽만 리셋. `h = 1σ`. 이어서 flow 방향과 동의하는 이벤트만 채택. `--event-mode every_bar`면 CUSUM 생략(동의 게이트도 해당 없음)                                                                                                                 |
 | 트리플 베리어    | `pt=sl=1σ`, 수직장벽 `τ=20` 바, 경로는 바 high/low                                                                                                                                                                                                                    |
 | Meta 타깃    | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치                                                                                                                                                                                                                             |
-| Meta 모델    | Random Forest (이 레포는 라벨까지)                                                                                                                                                                                                                                   |
+| Meta 피처    | 잠금 최소셋: `flow_strength=\|θ\|/E[θ]`, `cusum_excess_ratio=\|S\|/h` (정렬 여부는 게이트가 아니라 동의 게이트). 맥락 피처는 아직 없음                                                                                                                                                                                                 |
+| Meta 모델    | Random Forest (이 레포는 라벨+피처까지; 학습기는 다음 단계)                                                                                                                                                                                                                                   |
 
 
 바이낸스 `BTCUSDT`는 2017년에 상장되어 **2017-01-15 기준 1년은 존재하지 않습니다.** 기준일은 틱 데이터의 UTC 날짜입니다. 예: `--date 2024-01-16` → 평균 구간 `2023-01-16` ~ `2024-01-15` (고정 연도가 아니라 어제에서 끝나는 슬라이딩 365일).
@@ -75,6 +77,7 @@ Binance aggTrades
   → CUSUM filter (h = 1σ, reset crossed side only) picks candidate times
   → primary side = sign(signed dollar flow) on those bars
   → keep only cusum_side == side (aligned taker + price run)
+  → meta features: flow_strength, cusum_excess_ratio
   → triple-barrier meta labels
   → CPCV
 ```

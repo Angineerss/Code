@@ -74,6 +74,9 @@ class PipelineConfig:
     primary_type: PrimaryType = "rule_bar_flow_sign"
     require_cusum_flow_agree: bool = True
     primary_objective: str = "high_recall"
+    # Meta features (locked): strength of flow imbalance and of the price run.
+    # Alignment itself is not a feature — it is enforced by require_cusum_flow_agree.
+    meta_features: tuple[str, ...] = ("flow_strength", "cusum_excess_ratio")
     meta_model: str = "random_forest"
     cv_method: str = "cpcv"
     n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS

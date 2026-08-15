@@ -14,6 +14,7 @@ from .cpcv import cpcv_splits
 from .cusum import select_events
 from .daily_notional import PriorYearNotional, prior_year_notional
 from .download import load_or_download_day
+from .features import META_FEATURE_NAMES, attach_meta_features
 from .imbalance import EwmaState, ImbalanceSeed, build_bars, daily_quote_volume
 
 
@@ -30,6 +31,8 @@ def run_from_ticks(
     usable = bars.loc[bars["close_reason"] != "warmup"].reset_index(drop=True)
     events = select_events(usable, config)
     labeled = apply_triple_barrier(usable, events, config)
+    labeled = attach_meta_features(usable, labeled)
+    events = attach_meta_features(usable, events)
     splits = list(cpcv_splits(labeled, config))
     return bars, events, labeled, splits, state
 
@@ -60,6 +63,18 @@ def _median(series) -> float | None:
         return None
     value = series.median()
     return None if value != value else float(value)
+
+
+def _feature_medians(labeled) -> dict[str, float | None] | None:
+    if labeled is None or labeled.empty:
+        return None
+    out: dict[str, float | None] = {}
+    for name in META_FEATURE_NAMES:
+        if name not in labeled.columns:
+            out[name] = None
+        else:
+            out[name] = _median(labeled[name])
+    return out
 
 
 def _primary_cusum_agree(labeled) -> float | None:
@@ -105,6 +120,7 @@ def _summarize(
         "cusum_k": config.cusum_k,
         "primary": config.primary_type,
         "require_cusum_flow_agree": config.require_cusum_flow_agree,
+        "meta_features": list(config.meta_features),
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
         "n_labels": int(len(labeled)),
@@ -112,6 +128,7 @@ def _summarize(
         "median_bar_duration_s": _median(bars["duration_s"]) if not bars.empty and "duration_s" in bars else None,
         "close_reasons": close_reasons,
         "y_meta_rate": None if labeled.empty else float(labeled["y_meta"].mean()),
+        "feature_medians": _feature_medians(labeled),
         "touch_types": None if labeled.empty else labeled["touch_type"].value_counts().to_dict(),
         "primary_cusum_agree_rate": _primary_cusum_agree(labeled),
         "n_cpcv_paths": len(splits),

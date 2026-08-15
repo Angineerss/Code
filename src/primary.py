@@ -25,7 +25,10 @@ def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConf
     out["side"] = side.astype(np.int8)
     out = out.loc[out["side"] != 0]
     if config.require_cusum_flow_agree and "cusum_side" in out.columns:
-        out = out.loc[out["cusum_side"] == out["side"]]
+        cusum = pd.to_numeric(out["cusum_side"], errors="coerce")
+        # every_bar mode has no CUSUM side — skip the agree gate.
+        if cusum.notna().any():
+            out = out.loc[cusum.notna() & (cusum == out["side"])]
     return out.reset_index(drop=True)
 
 
