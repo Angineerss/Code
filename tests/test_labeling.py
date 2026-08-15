@@ -83,11 +83,41 @@ def test_primary_side_is_flow_not_cusum_direction():
             cusum_mode="absolute",
             cusum_absolute_h=0.01,
             primary_type="rule_bar_flow_sign",
+            require_cusum_flow_agree=False,
         ),
     )
     assert not events.empty
     assert (events["cusum_side"] == 1).all()
     assert (events["side"] == -1).all()
+
+
+def test_require_cusum_flow_agree_drops_mismatches():
+    bars = _monotonic_bars()
+    bars["signed_flow"] = -1.0
+    disagree = select_events(
+        bars,
+        tight_config(
+            cusum_mode="absolute",
+            cusum_absolute_h=0.01,
+            primary_type="rule_bar_flow_sign",
+            require_cusum_flow_agree=True,
+        ),
+    )
+    assert disagree.empty
+
+    bars["signed_flow"] = 1.0
+    agree = select_events(
+        bars,
+        tight_config(
+            cusum_mode="absolute",
+            cusum_absolute_h=0.01,
+            primary_type="rule_bar_flow_sign",
+            require_cusum_flow_agree=True,
+        ),
+    )
+    assert not agree.empty
+    assert (agree["cusum_side"] == agree["side"]).all()
+    assert (agree["side"] == 1).all()
 
 
 def test_triple_barrier_take_profit_and_timeout():

@@ -68,9 +68,11 @@ class PipelineConfig:
     timeout_y: int = 0
 
     # --- models / validation ---
-    # IS only: CPCV partitions labeled events into train vs CV-test paths.
-    # There is no separate fixed "IS holdout year"; OOS is the only untouched set.
+    # Hypothesis (locked): betting is advantageous when taker dollar-flow imbalance
+    # and a one-sided price run align (cusum_side == primary side).
+    # CUSUM = timing filter; primary = flow direction; agreement = joint event gate.
     primary_type: PrimaryType = "rule_bar_flow_sign"
+    require_cusum_flow_agree: bool = True
     primary_objective: str = "high_recall"
     meta_model: str = "random_forest"
     cv_method: str = "cpcv"

@@ -11,7 +11,9 @@ from .config import PipelineConfig, PrimaryType
 def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     """Attach primary ``side`` to CUSUM (or every-bar) event times.
 
-    CUSUM only decides *when* to consider a bet. This layer decides *which way*.
+    CUSUM decides *when*; primary decides *which way* (default = bar flow sign).
+    With ``require_cusum_flow_agree``, keep only events where ``cusum_side == side``
+    so taker imbalance and the price-run direction align (locked hypothesis).
     """
     if events.empty:
         out = events.copy()
@@ -21,7 +23,10 @@ def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConf
     side = _primary_side(bars, events, config.primary_type)
     out = events.copy()
     out["side"] = side.astype(np.int8)
-    return out.loc[out["side"] != 0].reset_index(drop=True)
+    out = out.loc[out["side"] != 0]
+    if config.require_cusum_flow_agree and "cusum_side" in out.columns:
+        out = out.loc[out["cusum_side"] == out["side"]]
+    return out.reset_index(drop=True)
 
 
 def _primary_side(bars: pd.DataFrame, events: pd.DataFrame, primary_type: PrimaryType) -> np.ndarray:

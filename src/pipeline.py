@@ -104,6 +104,7 @@ def _summarize(
         "event_mode": config.event_mode,
         "cusum_k": config.cusum_k,
         "primary": config.primary_type,
+        "require_cusum_flow_agree": config.require_cusum_flow_agree,
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
         "n_labels": int(len(labeled)),
