@@ -60,5 +60,12 @@
   "oos_touched": false,
   "selection_metric": "mean_cpcv_logloss",
   "label_note": "Almost all events hit TP/SL within ~10\u201320 bars; \u03c4=40 and \u03c4=80 labels are identical on this window.",
-  "locked_tau": 20
+  "locked_tau": 20,
+  "locked_policy": {
+    "vertical_bars": 20,
+    "boundary": "A",
+    "purge_bars": "1\u03c4",
+    "embargo_bars": "1\u03c4",
+    "note": "\u03c4 search used purge/embargo=100 experimentally; locked production policy is A (1\u03c4=20)."
+  }
 }

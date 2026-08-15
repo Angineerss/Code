@@ -14,7 +14,7 @@ from src.meta_samples import (
 
 def _labeled_frame() -> pd.DataFrame:
     # warmup, IS (safe), IS (t1 into OOS), IS (near boundary), OOS
-    # bar spans keep seconds/bar ~ 1 hour so 100-bar purge/embargo ≈ 100h.
+    # bar spans keep seconds/bar ~ 1 hour so 1τ=20-bar purge/embargo ≈ 20h.
     return pd.DataFrame(
         {
             "event_ts": pd.to_datetime(
@@ -69,8 +69,11 @@ def test_filter_with_purge_and_embargo_defaults():
     config = PipelineConfig()
     assert config.boundary_purge is True
     assert config.boundary_embargo is True
-    assert config.purge_bars == 100
-    assert config.embargo_bars == 100
+    # Policy A: Purge + Embargo = 1τ (None → follow vertical_bars=20).
+    assert config.purge_bars is None
+    assert config.embargo_bars is None
+    assert config.resolved_purge_bars() == config.vertical_bars == 20
+    assert config.resolved_embargo_bars() == 20
     assert config.selection_method == "cpcv_only"
     out = filter_meta_learning_samples(_labeled_frame(), config)
     # warmup + OOS gone; purged crossing / near-boundary rows gone

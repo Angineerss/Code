@@ -64,7 +64,7 @@ class PipelineConfig:
     pt: float = 1.0
     sl: float = 1.0
     # Vertical barrier τ selected on IS via CPCV (results/vertical_tau_cpcv_*.json).
-    # 2024H1 CPCV with purge/embargo=100 → τ=20 (min mean logloss).
+    # 2024H1 CPCV → τ=20 (min mean logloss). Locked.
     vertical_bars: int = 20
     barrier_vol_span: int = 50
     simultaneous_touch_y: int = 0
@@ -92,10 +92,10 @@ class PipelineConfig:
     cv_method: str = "cpcv"
     n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
     n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
-    # CPCV / boundary purge-embargo lengths in imbalance bars.
-    # Locked large enough that IS labels near OOS stay clear of the holdout.
-    purge_bars: int | None = 100
-    embargo_bars: int | None = 100
+    # Boundary policy A (locked): Purge + Embargo = 1τ each.
+    # None → resolved_*_bars() follows vertical_bars (τ=20 → 20 bars).
+    purge_bars: int | None = None
+    embargo_bars: int | None = None
     # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).
     boundary_purge: bool = True
     boundary_embargo: bool = True

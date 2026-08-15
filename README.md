@@ -48,7 +48,7 @@
 | Primary    | 규칙 기반. 기본 `sign(signed_flow)`. 가설 잠금으로 `cusum_side == side`**만 유지** (`require_cusum_flow_agree=True`). `--primary rule_cusum_sign`은 대조 실험용                                                                                                                   |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수)                                                                                                                                                                                                                              |
 | 이벤트 필터     | 불균형 바 종가 경로에 대칭 CUSUM. 시점 필터. `S±`는 AFML 식, 넘은 쪽만 리셋. `h = 1σ`. 이어서 flow 방향과 동의하는 이벤트만 채택. `--event-mode every_bar`면 CUSUM 생략(동의 게이트도 해당 없음)                                                                                                                 |
-| 트리플 베리어    | `pt=sl=1σ`, 수직장벽 **τ=20** (IS CPCV 선택: `τ∈{10,20,40,80}`, purge/embargo=100바, 2024H1 윈도우; `results/vertical_tau_cpcv_2024h1.json`). 경로는 바 high/low |
+| 트리플 베리어    | `pt=sl=1σ`, 수직장벽 **τ=20** (IS CPCV 선택: `τ∈{10,20,40,80}`, 2024H1; `results/vertical_tau_cpcv_2024h1.json`). 경로는 바 high/low |
 | Meta 타깃    | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치                                                                                                                                                                                                                             |
 | Meta 피처    | `flow_strength`, `cusum_excess_ratio`, `tick_rel=tick_count/E[T]`, `sigma`. 원시 tick·is_max_ticks·duration·시간대·모멘텀 제외 |
 | Meta 모델    | Random Forest (이 레포는 라벨+피처까지; 학습기는 다음 단계)                                                                                                                                                                                                                                   |
@@ -61,11 +61,11 @@
 - 전체 시계를 시간 순으로만 분할. 무작위 shuffle 없음
 - **Warmup** `2017-08-17` ~ `2018-08-16` (365 UTC일). D 시드(슬라이딩 365일) + EWMA만. 연구 라벨/하이퍼파라미터에 쓰지 않음
 - **IS** `2018-08-17` ~ `2024-12-31` (2329 UTC일). 하이퍼파라미터·메타 학습·교차검증은 여기만
-- **IS 안 학습 vs CV**: 별도 연도 holdout이 아니라 **CPCV**. 라벨 이벤트를 시간 순 **6개 contiguous 그룹**으로 나누고, 그중 **2개**를 CV-test로 쓰는 경로 `C(6,2)=15`. 각 경로의 나머지 그룹 = train (겹치면 **Purge**, 테스트 종료 후 **Embargo**). 길이는 **불균형 바 100개** (`purge_bars=embargo_bars=100`, 초 단위는 바당 중앙값 시간 × 100). OOS는 CV에 넣지 않음
+- **IS 안 학습 vs CV**: 별도 연도 holdout이 아니라 **CPCV**. 라벨 이벤트를 시간 순 **6개 contiguous 그룹**으로 나누고, 그중 **2개**를 CV-test로 쓰는 경로 `C(6,2)=15`. 각 경로의 나머지 그룹 = train (겹치면 **Purge**, 테스트 종료 후 **Embargo**). **정책 A (잠금):** Purge + Embargo = **1τ** 바씩 (`τ=20` → 각 20바; `purge_bars=embargo_bars=None`이면 `vertical_bars`를 따름). OOS는 CV에 넣지 않음
 - **OOS** `2025-01-01` ~ `2026-08-13` (590 UTC일). 컷 확정 후 손대지 않음. 이후 공개분은 OOS 끝에만 붙임
 - **OOS 가드:** 학습·구조화·튜닝에서 OOS는 코드가 거부 (`assert_learning_range` / `assert_not_oos_day`). **모든 모델·피처·임계값이 IS에서 확정된 뒤** 최종 성적만 `--allow-oos`
 - **메타 학습 샘플:** `split==is`만. 워밍업은 EWMA/D 전용(메타 샘플 제외). 선택/MDA/하이퍼/메타 임계값은 **CPCV만** (`selection_method=cpcv_only`)
-- **IS↔OOS 경계 (AFML, 100바):** Purge = `t1`이 OOS 직전 100바 창에 들어오면 제거. Embargo = 이벤트 시각이 OOS 직전 100바 이내면 제거. `filter_meta_learning_samples`
+- **IS↔OOS 경계 (AFML, 정책 A = 1τ):** Purge = `t1`이 OOS 직전 1τ 창에 들어오면 제거. Embargo = 이벤트 시각이 OOS 직전 1τ 이내면 제거. `filter_meta_learning_samples`
 
 
 

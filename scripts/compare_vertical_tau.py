@@ -3,7 +3,7 @@
 
 Re-labels existing IS events for each τ on a continuous multi-day bar stream,
 applies uniqueness sample weights, and scores RandomForest meta models under
-combinatorial purged CV with purge/embargo >= 100 imbalance bars.
+combinatorial purged CV with purge/embargo = 1τ imbalance bars (policy A).
 
 Does **not** touch OOS. Requires precomputed daily bars + events under a run
 root (warmup+IS only). File layout matches ``scripts/run_range.py``:

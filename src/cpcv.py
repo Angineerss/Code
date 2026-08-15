@@ -77,8 +77,8 @@ def cpcv_splits(
     remaining groups as train (after purge/embargo). OOS must not enter here.
 
     Purge/embargo lengths are ``resolved_*_bars() * median imbalance-bar duration``.
-    Default research setting uses >=100 bars so train never bleeds into nearby
-    evaluation windows (and, at the IS/OOS cut, into OOS).
+    Locked policy A: each defaults to 1τ (``vertical_bars``) so train does not
+    bleed into nearby evaluation windows (and, at the IS/OOS cut, into OOS).
     """
     n = len(labeled)
     if n == 0:
