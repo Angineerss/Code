@@ -50,7 +50,7 @@
 | 이벤트 필터     | 불균형 바 종가 경로에 대칭 CUSUM. 시점 필터. `S±`는 AFML 식, 넘은 쪽만 리셋. `h = 1σ`. 이어서 flow 방향과 동의하는 이벤트만 채택. `--event-mode every_bar`면 CUSUM 생략(동의 게이트도 해당 없음)                                                                                                                 |
 | 트리플 베리어    | `pt=sl=1σ`, 수직장벽 `τ=20` 바, 경로는 바 high/low                                                                                                                                                                                                                    |
 | Meta 타깃    | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치                                                                                                                                                                                                                             |
-| Meta 피처    | 잠금 최소셋: `flow_strength=\|θ\|/E[θ]`, `cusum_excess_ratio=\|S\|/h` (정렬 여부는 게이트가 아니라 동의 게이트). 맥락 피처는 아직 없음                                                                                                                                                                                                 |
+| Meta 피처    | 세기: `flow_strength`, `cusum_excess_ratio`. 맥락: `is_max_ticks`, `duration_s`, `tick_count`, `sigma`. 시간대·모멘텀 제외 |
 | Meta 모델    | Random Forest (이 레포는 라벨+피처까지; 학습기는 다음 단계)                                                                                                                                                                                                                                   |
 
 
