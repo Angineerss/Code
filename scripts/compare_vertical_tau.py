@@ -68,12 +68,12 @@ def load_continuous_is(
         if bars.empty:
             continue
         bars = bars.copy()
-        bars["start_ts"] = pd.to_datetime(bars["start_ts"], utc=True)
-        bars["end_ts"] = pd.to_datetime(bars["end_ts"], utc=True)
+        bars["start_ts"] = pd.to_datetime(bars["start_ts"], utc=True, format="mixed")
+        bars["end_ts"] = pd.to_datetime(bars["end_ts"], utc=True, format="mixed")
         bars["bar_id"] = bars["bar_id"].astype(int) + offset
         if not events.empty:
             events = events.copy()
-            events["event_ts"] = pd.to_datetime(events["event_ts"], utc=True)
+            events["event_ts"] = pd.to_datetime(events["event_ts"], utc=True, format="mixed")
             events["bar_id"] = events["bar_id"].astype(int) + offset
             event_frames.append(events)
         bar_frames.append(bars)

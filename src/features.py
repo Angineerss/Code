@@ -49,9 +49,13 @@ def attach_meta_features(
         out["cusum_excess_ratio"] = np.nan
 
     ticks = out["bar_id"].map(by_id["tick_count"]).to_numpy(dtype=float)
-    et = out["bar_id"].map(by_id["expected_ticks"]).to_numpy(dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        out["tick_rel"] = ticks / np.maximum(et, 1e-12)
+    if "expected_ticks" in by_id.columns:
+        et = out["bar_id"].map(by_id["expected_ticks"]).to_numpy(dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out["tick_rel"] = ticks / np.maximum(et, 1e-12)
+    else:
+        # Older bars CSVs omit E[T]; tick_rel cannot be formed — leave NaN.
+        out["tick_rel"] = np.nan
 
     # Prefer barrier-computed sigma on labeled rows; otherwise match barrier formula.
     if "sigma" in out.columns and pd.to_numeric(out["sigma"], errors="coerce").notna().all():
