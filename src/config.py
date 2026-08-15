@@ -63,6 +63,8 @@ class PipelineConfig:
     barrier_vol_span: int = 50
     simultaneous_touch_y: int = 0
     timeout_y: int = 0
+    # Extra UTC days after the event window so τ can complete across midnight / IS→OOS.
+    barrier_lookahead_days: int = 7
 
     # --- models / validation (ratios TBD after horizon is locked) ---
     primary_type: PrimaryType = "rule_bar_flow_sign"
