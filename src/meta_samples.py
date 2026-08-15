@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from datetime import date
 
-import numpy as np
 import pandas as pd
 
 from .config import PipelineConfig
+from .cpcv import seconds_per_imbalance_bar
 
 
 def _event_day(ts) -> date:
@@ -38,32 +38,31 @@ def add_split_column(labeled: pd.DataFrame, config: PipelineConfig) -> pd.DataFr
 
 
 def boundary_purge_mask(labeled: pd.DataFrame, config: PipelineConfig) -> pd.Series:
-    """True = keep. Drop rows whose label end ``t1_ts`` reaches OOS."""
+    """True = keep. Drop rows whose label end reaches into the pre-OOS purge.
+
+    Purge length = ``resolved_purge_bars`` imbalance bars (default 100), so
+    labels cannot sit against the OOS cut.
+    """
     if labeled.empty:
         return pd.Series(dtype=bool)
-    oos_start = pd.Timestamp(config.oos_start, tz="UTC")
-    return pd.to_datetime(labeled["t1_ts"], utc=True) < oos_start
+    t1_ts = pd.to_datetime(labeled["t1_ts"], utc=True)
+    spb = seconds_per_imbalance_bar(labeled)
+    purge = pd.Timedelta(seconds=max(spb * config.resolved_purge_bars(), 0.0))
+    cutoff = pd.Timestamp(config.oos_start, tz="UTC") - purge
+    return t1_ts < cutoff
 
 
 def boundary_embargo_mask(labeled: pd.DataFrame, config: PipelineConfig) -> pd.Series:
-    """True = keep. Drop IS events whose ``event_ts`` falls inside the pre-OOS embargo.
+    """True = keep. Drop IS events inside the pre-OOS embargo window.
 
-    Embargo length defaults to one max label lifetime (``resolved_embargo_bars`` /
-    ``vertical_bars`` × median observed label horizon), matching AFML's use of
-    the holding-period scale at a purged boundary.
+    Embargo length = ``resolved_embargo_bars`` imbalance bars (default 100),
+    converted via median seconds per imbalance bar.
     """
     if labeled.empty:
         return pd.Series(dtype=bool)
     event_ts = pd.to_datetime(labeled["event_ts"], utc=True)
-    t1_ts = pd.to_datetime(labeled["t1_ts"], utc=True)
-    horizons = t1_ts - event_ts
-    finite = horizons[horizons.notna() & (horizons > pd.Timedelta(0))]
-    if finite.empty:
-        med = pd.Timedelta(days=0)
-    else:
-        med = finite.median()
-    scale = float(config.resolved_embargo_bars()) / float(max(config.vertical_bars, 1))
-    embargo = med * scale
+    spb = seconds_per_imbalance_bar(labeled)
+    embargo = pd.Timedelta(seconds=max(spb * config.resolved_embargo_bars(), 0.0))
     cutoff = pd.Timestamp(config.oos_start, tz="UTC") - embargo
     return event_ts < cutoff
 

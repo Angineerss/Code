@@ -14,6 +14,7 @@ from src.meta_samples import (
 
 def _labeled_frame() -> pd.DataFrame:
     # warmup, IS (safe), IS (t1 into OOS), IS (near boundary), OOS
+    # bar spans keep seconds/bar ~ 1 hour so 100-bar purge/embargo ≈ 100h.
     return pd.DataFrame(
         {
             "event_ts": pd.to_datetime(
@@ -28,14 +29,16 @@ def _labeled_frame() -> pd.DataFrame:
             ),
             "t1_ts": pd.to_datetime(
                 [
-                    "2018-01-02T00:00:00Z",
-                    "2024-06-02T00:00:00Z",
+                    "2018-01-01T20:00:00Z",
+                    "2024-06-01T20:00:00Z",
                     "2025-01-02T00:00:00Z",  # crosses OOS
                     "2024-12-31T12:00:00Z",  # ends inside IS, near boundary
                     "2025-01-06T00:00:00Z",
                 ],
                 utc=True,
             ),
+            "bar_id": [0, 100, 200, 300, 400],
+            "t1_bar_id": [20, 120, 220, 320, 420],
             "y_meta": [0, 1, 1, 0, 1],
         }
     )
@@ -66,10 +69,14 @@ def test_filter_with_purge_and_embargo_defaults():
     config = PipelineConfig()
     assert config.boundary_purge is True
     assert config.boundary_embargo is True
+    assert config.purge_bars == 100
+    assert config.embargo_bars == 100
     assert config.selection_method == "cpcv_only"
     out = filter_meta_learning_samples(_labeled_frame(), config)
-    # warmup + OOS gone; purged crossing row gone
+    # warmup + OOS gone; purged crossing / near-boundary rows gone
     assert date(2024, 12, 20) not in set(out["event_ts"].dt.date)
+    assert date(2024, 12, 30) not in set(out["event_ts"].dt.date)
+    assert date(2024, 6, 1) in set(out["event_ts"].dt.date)
     assert (out["split"] == "is").all()
 
 

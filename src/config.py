@@ -90,12 +90,15 @@ class PipelineConfig:
     cv_method: str = "cpcv"
     n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
     n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
-    purge_bars: int | None = None
-    embargo_bars: int | None = None
+    # CPCV / boundary purge-embargo lengths in imbalance bars.
+    # Locked large enough that IS labels near OOS stay clear of the holdout.
+    purge_bars: int | None = 100
+    embargo_bars: int | None = 100
     # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).
-    # Default embargo scale = one max label lifetime (τ = vertical_bars).
     boundary_purge: bool = True
     boundary_embargo: bool = True
+    # Vertical barrier τ is selected on IS via CPCV (candidate grid below).
+    vertical_tau_candidates: tuple[int, ...] = (10, 20, 40, 80)
 
     extra: dict = field(default_factory=dict)
 

@@ -12,19 +12,31 @@ def test_cpcv_paths_are_purged():
         {
             "event_ts": t0,
             "t1_ts": t0 + pd.Timedelta(minutes=10),
+            "bar_id": np.arange(n),
+            "t1_bar_id": np.arange(n) + 2,
             "y_meta": np.resize([0, 1], n),
         }
     )
-    config = tight_config(n_cpcv_groups=5, n_cpcv_test_groups=2, vertical_bars=2)
+    # Small purge/embargo so the synthetic grid still yields train rows.
+    config = tight_config(
+        n_cpcv_groups=5,
+        n_cpcv_test_groups=2,
+        vertical_bars=2,
+        purge_bars=2,
+        embargo_bars=2,
+    )
     paths = list(cpcv_splits(labeled, config))
     assert len(paths) == 10  # C(5,2)
     for train, test in paths:
         assert len(np.intersect1d(train, test)) == 0
         if train.size and test.size:
-            # Purged train labels must not overlap the test time span.
+            # Train labels must not overlap the purged neighborhood of test.
             test_start = labeled.loc[test, "event_ts"].min()
             test_end = labeled.loc[test, "t1_ts"].max()
+            spb = 5 * 60.0  # 5min bars in this synthetic set
+            purge_start = test_start - pd.Timedelta(seconds=spb * config.resolved_purge_bars())
+            embargo_end = test_end + pd.Timedelta(seconds=spb * config.resolved_embargo_bars())
             train_t0 = labeled.loc[train, "event_ts"]
             train_t1 = labeled.loc[train, "t1_ts"]
-            overlap = ~((train_t1 < test_start) | (train_t0 > test_end))
+            overlap = ~((train_t1 < purge_start) | (train_t0 > embargo_end))
             assert not overlap.any()
