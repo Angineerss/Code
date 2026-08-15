@@ -1,8 +1,13 @@
 """Meta-label features at event time (no look-ahead).
 
-Locked minimum set (hypothesis strength, not alignment — alignment is gated):
+Hypothesis strength:
 - flow_strength: |θ| / E[θ] on the event bar
 - cusum_excess_ratio: |S| / h at the CUSUM crossing (before reset)
+
+Context (locked subset):
+- is_max_ticks: bar closed by tick cap
+- duration_s, tick_count: bar shape
+- sigma: same EWM bar-log-return vol used for barriers
 """
 
 from __future__ import annotations
@@ -10,10 +15,23 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-META_FEATURE_NAMES = ("flow_strength", "cusum_excess_ratio")
+from .barriers import barrier_volatility
+
+META_FEATURE_NAMES = (
+    "flow_strength",
+    "cusum_excess_ratio",
+    "is_max_ticks",
+    "duration_s",
+    "tick_count",
+    "sigma",
+)
 
 
-def attach_meta_features(bars: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+def attach_meta_features(
+    bars: pd.DataFrame,
+    events: pd.DataFrame,
+    vol_span: int = 50,
+) -> pd.DataFrame:
     """Append locked meta features to labeled or unlabeled events."""
     out = events.copy()
     if out.empty:
@@ -32,6 +50,19 @@ def attach_meta_features(bars: pd.DataFrame, events: pd.DataFrame) -> pd.DataFra
         out["cusum_excess_ratio"] = pd.to_numeric(out["cusum_excess_ratio"], errors="coerce")
     else:
         out["cusum_excess_ratio"] = np.nan
+
+    reason = out["bar_id"].map(by_id["close_reason"])
+    out["is_max_ticks"] = (reason == "max_ticks").astype(np.float64)
+    out["duration_s"] = out["bar_id"].map(by_id["duration_s"]).astype(float)
+    out["tick_count"] = out["bar_id"].map(by_id["tick_count"]).astype(float)
+
+    # Prefer barrier-computed sigma on labeled rows; otherwise match barrier formula.
+    if "sigma" in out.columns and pd.to_numeric(out["sigma"], errors="coerce").notna().all():
+        out["sigma"] = pd.to_numeric(out["sigma"], errors="coerce")
+    else:
+        sig = barrier_volatility(bars, vol_span)
+        sig_by_id = pd.Series(sig, index=bars["bar_id"].to_numpy())
+        out["sigma"] = out["bar_id"].map(sig_by_id).astype(float)
     return out
 
 

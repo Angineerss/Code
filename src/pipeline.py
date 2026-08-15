@@ -31,8 +31,8 @@ def run_from_ticks(
     usable = bars.loc[bars["close_reason"] != "warmup"].reset_index(drop=True)
     events = select_events(usable, config)
     labeled = apply_triple_barrier(usable, events, config)
-    labeled = attach_meta_features(usable, labeled)
-    events = attach_meta_features(usable, events)
+    labeled = attach_meta_features(usable, labeled, vol_span=config.barrier_vol_span)
+    events = attach_meta_features(usable, events, vol_span=config.barrier_vol_span)
     splits = list(cpcv_splits(labeled, config))
     return bars, events, labeled, splits, state
 

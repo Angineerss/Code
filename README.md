@@ -11,7 +11,10 @@
 - CUSUM = **시점** 필터 (바 종가 로그수익의 한쪽 누적 S^\pm가 1\sigma 돌파)
 - Primary = **방향** = 이벤트 바 `sign(signed_flow)` (taker 달러 불균형)
 - **동의 게이트:** `cusum_side == side` 인 이벤트만 남김 (어긋나면 폐기)
-- **Meta 피처 (잠금):** `flow_strength = |θ|/E[θ]`, `cusum_excess_ratio = |S|/h` (넘긴 직후, 리셋 전)
+- **Meta 피처 (잠금):**
+  - 세기: `flow_strength = |θ|/E[θ]`, `cusum_excess_ratio = |S|/h` (넘긴 직후, 리셋 전)
+  - 맥락: `is_max_ticks`, `duration_s`, `tick_count`, `sigma` (베리어와 동일 EWM σ)
+  - 미포함: 장 시간대, 최근 바 모멘텀
 - 검증 = 트리플 베리어 메타 라벨 (`y_meta`). 인과(“가격이 taker 때문인가”)는 이 파이프라인의 범위 밖
 
 ## 확정 스펙
@@ -77,7 +80,7 @@ Binance aggTrades
   → CUSUM filter (h = 1σ, reset crossed side only) picks candidate times
   → primary side = sign(signed dollar flow) on those bars
   → keep only cusum_side == side (aligned taker + price run)
-  → meta features: flow_strength, cusum_excess_ratio
+  → meta features: flow_strength, cusum_excess_ratio, is_max_ticks, duration_s, tick_count, sigma
   → triple-barrier meta labels
   → CPCV
 ```
