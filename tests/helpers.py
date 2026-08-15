@@ -14,11 +14,12 @@ def make_ticks(
     buy_prob: float = 0.8,
     qty: float = 1.0,
     seed: int = 0,
+    start: datetime | None = None,
 ) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     side = np.where(rng.random(n) < buy_prob, 1, -1).astype(np.int8)
     price = start_price + np.cumsum(side * 0.02)
-    start = datetime(2024, 1, 15, tzinfo=timezone.utc)
+    start = start or datetime(2024, 1, 15, tzinfo=timezone.utc)
     ts = [start + timedelta(milliseconds=i * 200) for i in range(n)]
     qty_arr = np.full(n, qty, dtype=float)
     return pd.DataFrame(
@@ -47,6 +48,7 @@ def tight_config(**kwargs) -> PipelineConfig:
         barrier_vol_span=5,
         n_cpcv_groups=4,
         n_cpcv_test_groups=1,
+        barrier_lookahead_days=1,
     )
     defaults.update(kwargs)
     return PipelineConfig(**defaults)

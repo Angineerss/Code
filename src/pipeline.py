@@ -15,6 +15,7 @@ from .cusum import select_events
 from .daily_notional import PriorYearNotional, prior_year_notional
 from .download import load_or_download_day
 from .imbalance import EwmaState, ImbalanceSeed, build_bars, daily_quote_volume
+from .range_label import run_range
 
 
 def run_from_ticks(
@@ -124,6 +125,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--date", default=None, help="UTC day YYYY-MM-DD; default = latest published")
+    parser.add_argument(
+        "--split",
+        default=None,
+        choices=("is", "oos"),
+        help="Label the locked IS or OOS window on a continuous bar clock",
+    )
+    parser.add_argument("--from-date", default=None, help="UTC start day YYYY-MM-DD (inclusive)")
+    parser.add_argument("--to-date", default=None, help="UTC end day YYYY-MM-DD (inclusive)")
     parser.add_argument("--data-dir", default="data")
     parser.add_argument(
         "--bar-type",
@@ -153,31 +162,22 @@ def main(argv: list[str] | None = None) -> int:
         primary_type=args.primary,
     )
     dest = Path(args.data_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    range_start, range_end = _range_from_args(args, config)
+    if range_start is not None:
+        return _run_range(config, dest, range_start, range_end, args.ewma_state)
+
     day = date.fromisoformat(args.date) if args.date else None
     ticks, day = load_or_download_day(config.symbol, dest, config.market, day)
 
     state_path = resolve_ewma_state_path(dest, config.symbol, day, args.ewma_state)
     initial_state = None if state_path is None else load_ewma_state(state_path)
-
-    prior = None
-    seed = None
-    if config.bar_type == "dollar_imbalance":
-        prior = prior_year_notional(
-            config.symbol,
-            day,
-            divisor=config.imbalance_divisor,
-            lookback_days=config.imbalance_lookback_days,
-            cache_dir=dest / "klines",
-        )
-        seed = ImbalanceSeed(
-            expected_imbalance=prior.threshold,
-            expected_size=prior.expected_size,
-        )
+    prior, seed = _seed_for_day(config, dest, day)
     bars, events, labeled, splits, state = run_from_ticks(
         ticks, config, seed=seed, initial_state=initial_state
     )
 
-    dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
     (dest / f"{config.symbol}_{day}_ewma_state.json").write_text(
         json.dumps(asdict(state), indent=2)
@@ -193,6 +193,88 @@ def main(argv: list[str] | None = None) -> int:
     (dest / f"{config.symbol}_{day}_summary.json").write_text(
         json.dumps(summary, indent=2, default=str)
     )
+    return 0
+
+
+def _range_from_args(args, config: PipelineConfig) -> tuple[date | None, date | None]:
+    if args.split and (args.from_date or args.to_date or args.date):
+        raise SystemExit("Use --split alone, or --from-date/--to-date, or --date")
+    if args.split == "is":
+        return config.is_range()
+    if args.split == "oos":
+        return config.oos_range()
+    if args.from_date or args.to_date:
+        if not (args.from_date and args.to_date):
+            raise SystemExit("--from-date and --to-date are required together")
+        return date.fromisoformat(args.from_date), date.fromisoformat(args.to_date)
+    return None, None
+
+
+def _seed_for_day(
+    config: PipelineConfig, dest: Path, day: date
+) -> tuple[PriorYearNotional | None, ImbalanceSeed | None]:
+    if config.bar_type != "dollar_imbalance":
+        return None, None
+    prior = prior_year_notional(
+        config.symbol,
+        day,
+        divisor=config.imbalance_divisor,
+        lookback_days=config.imbalance_lookback_days,
+        cache_dir=dest / "klines",
+    )
+    seed = ImbalanceSeed(
+        expected_imbalance=prior.threshold,
+        expected_size=prior.expected_size,
+    )
+    return prior, seed
+
+
+def _run_range(
+    config: PipelineConfig,
+    dest: Path,
+    start: date,
+    end: date,
+    ewma_state: str | None,
+) -> int:
+    state_path = resolve_ewma_state_path(dest, config.symbol, start, ewma_state)
+    initial_state = None if state_path is None else load_ewma_state(state_path)
+
+    def load_ticks(day: date):
+        ticks, _ = load_or_download_day(config.symbol, dest, config.market, day)
+        return ticks
+
+    def seed_for_day(day: date) -> ImbalanceSeed | None:
+        _prior, seed = _seed_for_day(config, dest, day)
+        return seed
+
+    bars, events, labeled, is_labeled, splits, state, loaded = run_range(
+        start,
+        end,
+        load_ticks,
+        config,
+        seed_for_day=seed_for_day,
+        initial_state=initial_state,
+        dest=dest,
+    )
+    stem = f"{config.symbol}_{start.isoformat()}_{end.isoformat()}"
+    bars.to_csv(dest / f"{stem}_bars.csv", index=False)
+    if config.session != "warmup":
+        labeled.to_csv(dest / f"{stem}_labels.csv", index=False)
+        is_labeled.to_csv(dest / f"{stem}_is_labels.csv", index=False)
+    if state is not None:
+        (dest / f"{config.symbol}_{end}_ewma_state.json").write_text(
+            json.dumps(asdict(state), indent=2)
+        )
+    summary = _summarize(bars, events, labeled, splits, config, None, state=state)
+    summary["from"] = start.isoformat()
+    summary["to"] = end.isoformat()
+    summary["n_days_loaded"] = len(loaded)
+    summary["n_is_labels"] = int(len(is_labeled))
+    summary["n_oos_labels"] = int((labeled["split"] == "oos").sum()) if not labeled.empty else 0
+    summary["ewma_state_loaded_from"] = None if state_path is None else str(state_path)
+    summary["ewma_continued"] = initial_state is not None
+    print(json.dumps(summary, indent=2, default=str))
+    (dest / f"{stem}_summary.json").write_text(json.dumps(summary, indent=2, default=str))
     return 0
 
 

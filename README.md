@@ -68,6 +68,10 @@ python scripts/download_aggtrades_archive.py --data-dir data/aggtrades
 python -m src --symbol BTCUSDT --date 2024-01-15
 python -m src --symbol BTCUSDT --date 2024-01-16
 python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
+# Continuous bar clock for a window (CUSUM / τ cross midnight). IS drops labels whose t1 is in OOS.
+python -m src --symbol BTCUSDT --from-date 2024-01-15 --to-date 2024-01-17 --data-dir data
+python -m src --symbol BTCUSDT --split is --data-dir data
+python -m src --symbol BTCUSDT --split oos --data-dir data
 ```
 
 산출물 (`data/`):
@@ -78,3 +82,4 @@ python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
 - `{SYMBOL}_{day}_labels.csv`
 - `{SYMBOL}_{day}_ewma_state.json` (다음 날 EWMA 이어받기)
 - `{SYMBOL}_{day}_summary.json`
+- `{SYMBOL}_{from}_{to}_bars.csv` / `_labels.csv` / `_is_labels.csv` / `_summary.json` — 구간 라벨
