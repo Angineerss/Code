@@ -53,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip days that already have bars.csv and ewma_state.json",
     )
+    parser.add_argument(
+        "--allow-oos",
+        action="store_true",
+        help="Permit OOS dates. Default forbids any OOS day (learning/structuring).",
+    )
     args = parser.parse_args(argv)
 
     start = date.fromisoformat(args.start)
@@ -61,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--end must be on or after --start")
 
     config = PipelineConfig(symbol=args.symbol.upper(), primary_type=args.primary)
+    if not args.allow_oos:
+        try:
+            config.assert_learning_range(start, end)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr, flush=True)
+            return 2
     archive_dir = Path(args.archive_dir)
     out_dir = Path(args.out_dir)
     klines_dir = Path(args.klines_dir)
@@ -99,6 +110,12 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         print(f"[run] {day.isoformat()} ...", flush=True)
+        if not args.allow_oos:
+            try:
+                config.assert_not_oos_day(day)
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr, flush=True)
+                return 2
         ticks = load_day_from_archive(config.symbol, day, archive_dir, month_cache=month_cache)
         keep = (day.year, day.month)
         for key in list(month_cache):

@@ -166,6 +166,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Previous day's ewma_state.json; default = data/{symbol}_{date-1}_ewma_state.json",
     )
+    parser.add_argument(
+        "--allow-oos",
+        action="store_true",
+        help="Permit an OOS calendar day. Default forbids OOS (learning/structuring).",
+    )
     args = parser.parse_args(argv)
 
     config = PipelineConfig(
@@ -181,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     ticks, day = load_or_download_day(
         config.symbol, dest, config.market, day, archive_dir=archive_dir
     )
+    if not args.allow_oos:
+        try:
+            config.assert_not_oos_day(day)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr, flush=True)
+            return 2
 
     state_path = resolve_ewma_state_path(dest, config.symbol, day, args.ewma_state)
     initial_state = None if state_path is None else load_ewma_state(state_path)

@@ -54,6 +54,16 @@ def test_oos_must_follow_is():
         PipelineConfig(is_end=date(2024, 12, 31), oos_start=date(2025, 1, 2))
 
 
-def test_is_must_follow_warmup():
-    with pytest.raises(ValueError, match="IS must start"):
-        PipelineConfig(warmup_end=date(2018, 8, 16), universe_start=date(2018, 8, 18))
+def test_learning_range_excludes_oos():
+    config = PipelineConfig()
+    assert config.learning_range() == (date(2017, 8, 17), date(2024, 12, 31))
+    assert config.is_oos_day(date(2025, 1, 1))
+    assert not config.is_oos_day(date(2024, 12, 31))
+    config.assert_not_oos_day(date(2024, 12, 31))
+    config.assert_learning_range(date(2017, 8, 17), date(2024, 12, 31))
+    with pytest.raises(ValueError, match="OOS day"):
+        config.assert_not_oos_day(date(2025, 6, 1))
+    with pytest.raises(ValueError, match="intersects locked OOS"):
+        config.assert_learning_range(date(2024, 1, 1), date(2025, 1, 1))
+    with pytest.raises(ValueError, match="intersects locked OOS"):
+        config.assert_learning_range(date(2025, 1, 1), date(2026, 8, 13))

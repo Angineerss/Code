@@ -29,7 +29,8 @@ class PipelineConfig:
     # Research IS starts the day after warmup (first day with a full 365d prior for D).
     universe_start: date = date(2018, 8, 17)
     is_end: date = date(2024, 12, 31)
-    # Untouched holdout after IS. Do not tune on OOS.
+    # Untouched holdout after IS. Learning/structuring must never use OOS
+    # unless an explicit final-evaluation allow_oos flag is set.
     oos_start: date = date(2025, 1, 1)
     oos_end: date = date(2026, 8, 13)
 
@@ -130,6 +131,35 @@ class PipelineConfig:
 
     def oos_range(self) -> tuple[date, date]:
         return self.oos_start, self.oos_end
+
+    def learning_range(self) -> tuple[date, date]:
+        """Warmup + IS only. OOS is excluded from all learning/structuring defaults."""
+        return self.archive_start, self.is_end
+
+    def is_oos_day(self, day: date) -> bool:
+        return self.split_for_day(day) == "oos"
+
+    def assert_not_oos_day(self, day: date) -> None:
+        """Raise if ``day`` is OOS. Learning pipelines must not touch OOS."""
+        if self.is_oos_day(day):
+            raise ValueError(
+                f"OOS day {day.isoformat()} is locked untouched "
+                f"(OOS={self.oos_start}..{self.oos_end}). "
+                "Pass allow_oos only for the final evaluation run."
+            )
+
+    def assert_learning_range(self, start: date, end: date) -> None:
+        """Raise if [start, end] intersects OOS. Default for structuring/training."""
+        if end < start:
+            raise ValueError("end must be on or after start")
+        if start <= self.oos_end and end >= self.oos_start:
+            raise ValueError(
+                f"Range {start}..{end} intersects locked OOS "
+                f"{self.oos_start}..{self.oos_end}. "
+                "Learning/structuring must stay within "
+                f"{self.archive_start}..{self.is_end} "
+                "(use allow_oos only for final OOS evaluation)."
+            )
 
     def cpcv_path_count(self) -> int:
         """Number of combinatorial CPCV paths: C(n_groups, n_test_groups)."""
