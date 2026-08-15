@@ -84,11 +84,18 @@ class PipelineConfig:
         "sigma",
     )
     meta_model: str = "random_forest"
+    # All model/feature/threshold choices happen inside IS via CPCV only.
+    # No extra IS holdout year and never tune on OOS.
+    selection_method: str = "cpcv_only"
     cv_method: str = "cpcv"
     n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
     n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
     purge_bars: int | None = None
     embargo_bars: int | None = None
+    # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).
+    # Default embargo scale = one max label lifetime (τ = vertical_bars).
+    boundary_purge: bool = True
+    boundary_embargo: bool = True
 
     extra: dict = field(default_factory=dict)
 
@@ -107,6 +114,10 @@ class PipelineConfig:
             raise ValueError("n_cpcv_groups must be >= 2")
         if not (1 <= self.n_cpcv_test_groups < self.n_cpcv_groups):
             raise ValueError("n_cpcv_test_groups must be in [1, n_cpcv_groups)")
+        if self.selection_method != "cpcv_only":
+            raise ValueError("selection_method must be 'cpcv_only'")
+        if self.cv_method != "cpcv":
+            raise ValueError("cv_method must be 'cpcv'")
 
     def resolved_purge_bars(self) -> int:
         return self.vertical_bars if self.purge_bars is None else self.purge_bars
