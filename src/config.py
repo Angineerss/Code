@@ -79,7 +79,6 @@ class PipelineConfig:
     meta_features: tuple[str, ...] = (
         "flow_strength",
         "cusum_excess_ratio",
-        "is_max_ticks",
         "tick_count",
         "sigma",
     )

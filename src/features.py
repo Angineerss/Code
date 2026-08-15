@@ -5,9 +5,11 @@ Hypothesis strength:
 - cusum_excess_ratio: |S| / h at the CUSUM crossing (before reset)
 
 Context (locked subset):
-- is_max_ticks: bar closed by tick cap
-- tick_count: bar size in aggTrades (duration_s dropped — redundant with ticks)
+- tick_count: bar size in aggTrades
 - sigma: same EWM bar-log-return vol used for barriers
+
+Dropped as redundant with flow_strength: is_max_ticks.
+Dropped as redundant with tick_count: duration_s.
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from .barriers import barrier_volatility
 META_FEATURE_NAMES = (
     "flow_strength",
     "cusum_excess_ratio",
-    "is_max_ticks",
     "tick_count",
     "sigma",
 )
@@ -50,8 +51,6 @@ def attach_meta_features(
     else:
         out["cusum_excess_ratio"] = np.nan
 
-    reason = out["bar_id"].map(by_id["close_reason"])
-    out["is_max_ticks"] = (reason == "max_ticks").astype(np.float64)
     out["tick_count"] = out["bar_id"].map(by_id["tick_count"]).astype(float)
 
     # Prefer barrier-computed sigma on labeled rows; otherwise match barrier formula.

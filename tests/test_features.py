@@ -5,15 +5,15 @@ from src.pipeline import run_from_ticks
 from tests.helpers import make_ticks, tight_config
 
 
-def test_meta_feature_names_include_context():
+def test_meta_feature_names_locked_set():
     assert META_FEATURE_NAMES == (
         "flow_strength",
         "cusum_excess_ratio",
-        "is_max_ticks",
         "tick_count",
         "sigma",
     )
     assert "duration_s" not in META_FEATURE_NAMES
+    assert "is_max_ticks" not in META_FEATURE_NAMES
 
 
 def test_attach_meta_features_strength_and_context():
@@ -37,10 +37,10 @@ def test_attach_meta_features_strength_and_context():
     )
     out = attach_meta_features(bars, events, vol_span=2)
     assert abs(out.loc[0, "flow_strength"] - 2.0) < 1e-9
-    assert out.loc[0, "is_max_ticks"] == 0.0
-    assert out.loc[1, "is_max_ticks"] == 1.0
     assert out.loc[1, "tick_count"] == 500.0
-    assert "duration_s" not in meta_feature_matrix(out).columns
+    cols = list(meta_feature_matrix(out).columns)
+    assert cols == list(META_FEATURE_NAMES)
+    assert "is_max_ticks" not in cols
     assert out["sigma"].notna().all()
 
 
@@ -51,9 +51,7 @@ def test_pipeline_labels_include_locked_meta_features():
     for name in META_FEATURE_NAMES:
         assert name in labeled.columns
         assert name in events.columns
-    assert "duration_s" not in META_FEATURE_NAMES
     assert (labeled["flow_strength"] > 0).all()
     assert (labeled["cusum_excess_ratio"] >= 1.0).all()
-    assert set(labeled["is_max_ticks"].unique()).issubset({0.0, 1.0})
     assert (labeled["tick_count"] > 0).all()
     assert labeled["sigma"].notna().all()
