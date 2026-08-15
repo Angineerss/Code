@@ -6,7 +6,7 @@ Hypothesis strength:
 
 Context (locked subset):
 - is_max_ticks: bar closed by tick cap
-- duration_s, tick_count: bar shape
+- tick_count: bar size in aggTrades (duration_s dropped — redundant with ticks)
 - sigma: same EWM bar-log-return vol used for barriers
 """
 
@@ -21,7 +21,6 @@ META_FEATURE_NAMES = (
     "flow_strength",
     "cusum_excess_ratio",
     "is_max_ticks",
-    "duration_s",
     "tick_count",
     "sigma",
 )
@@ -53,7 +52,6 @@ def attach_meta_features(
 
     reason = out["bar_id"].map(by_id["close_reason"])
     out["is_max_ticks"] = (reason == "max_ticks").astype(np.float64)
-    out["duration_s"] = out["bar_id"].map(by_id["duration_s"]).astype(float)
     out["tick_count"] = out["bar_id"].map(by_id["tick_count"]).astype(float)
 
     # Prefer barrier-computed sigma on labeled rows; otherwise match barrier formula.

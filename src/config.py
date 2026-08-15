@@ -80,7 +80,6 @@ class PipelineConfig:
         "flow_strength",
         "cusum_excess_ratio",
         "is_max_ticks",
-        "duration_s",
         "tick_count",
         "sigma",
     )

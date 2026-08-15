@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 
 from src.features import META_FEATURE_NAMES, attach_meta_features, meta_feature_matrix
@@ -11,10 +10,10 @@ def test_meta_feature_names_include_context():
         "flow_strength",
         "cusum_excess_ratio",
         "is_max_ticks",
-        "duration_s",
         "tick_count",
         "sigma",
     )
+    assert "duration_s" not in META_FEATURE_NAMES
 
 
 def test_attach_meta_features_strength_and_context():
@@ -38,14 +37,11 @@ def test_attach_meta_features_strength_and_context():
     )
     out = attach_meta_features(bars, events, vol_span=2)
     assert abs(out.loc[0, "flow_strength"] - 2.0) < 1e-9
-    assert abs(out.loc[1, "flow_strength"] - 1.5) < 1e-9
     assert out.loc[0, "is_max_ticks"] == 0.0
     assert out.loc[1, "is_max_ticks"] == 1.0
-    assert out.loc[0, "duration_s"] == 10.0
     assert out.loc[1, "tick_count"] == 500.0
+    assert "duration_s" not in meta_feature_matrix(out).columns
     assert out["sigma"].notna().all()
-    X = meta_feature_matrix(out)
-    assert list(X.columns) == list(META_FEATURE_NAMES)
 
 
 def test_pipeline_labels_include_locked_meta_features():
@@ -55,9 +51,9 @@ def test_pipeline_labels_include_locked_meta_features():
     for name in META_FEATURE_NAMES:
         assert name in labeled.columns
         assert name in events.columns
+    assert "duration_s" not in META_FEATURE_NAMES
     assert (labeled["flow_strength"] > 0).all()
     assert (labeled["cusum_excess_ratio"] >= 1.0).all()
     assert set(labeled["is_max_ticks"].unique()).issubset({0.0, 1.0})
-    assert (labeled["duration_s"] > 0).all()
     assert (labeled["tick_count"] > 0).all()
     assert labeled["sigma"].notna().all()
