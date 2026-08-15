@@ -1,0 +1,64 @@
+{
+  "purge_bars": 100,
+  "embargo_bars": 100,
+  "n_bars": 20848,
+  "n_events": 8181,
+  "results": {
+    "10": {
+      "n": 8181,
+      "n_paths": 14,
+      "logloss_mean": 0.6955814572239144,
+      "logloss_std": 0.0014377365156820372,
+      "accuracy_mean": 0.5054742804498198,
+      "seconds_per_bar": 445.2443333333333,
+      "purge_bars": 100,
+      "embargo_bars": 100,
+      "purge_seconds": 44524,
+      "embargo_seconds": 44524
+    },
+    "20": {
+      "n": 8181,
+      "n_paths": 14,
+      "logloss_mean": 0.6955128354077617,
+      "logloss_std": 0.0016097915868325745,
+      "accuracy_mean": 0.5050030160640826,
+      "seconds_per_bar": 445.1675,
+      "purge_bars": 100,
+      "embargo_bars": 100,
+      "purge_seconds": 44516,
+      "embargo_seconds": 44516
+    },
+    "40": {
+      "n": 8181,
+      "n_paths": 14,
+      "logloss_mean": 0.6955563250388488,
+      "logloss_std": 0.001588408378658606,
+      "accuracy_mean": 0.5048721369655317,
+      "seconds_per_bar": 445.1675,
+      "purge_bars": 100,
+      "embargo_bars": 100,
+      "purge_seconds": 44516,
+      "embargo_seconds": 44516
+    },
+    "80": {
+      "n": 8181,
+      "n_paths": 14,
+      "logloss_mean": 0.6955563250388488,
+      "logloss_std": 0.0015884083786586118,
+      "accuracy_mean": 0.5048721369655317,
+      "seconds_per_bar": 445.1675,
+      "purge_bars": 100,
+      "embargo_bars": 100,
+      "purge_seconds": 44516,
+      "embargo_seconds": 44516
+    }
+  },
+  "best_tau": 20,
+  "note": "Selected by mean CPCV logloss on IS only; OOS untouched.",
+  "window": "2024-01-01..2024-06-30",
+  "split": "is",
+  "oos_touched": false,
+  "selection_metric": "mean_cpcv_logloss",
+  "label_note": "Almost all events hit TP/SL within ~10\u201320 bars; \u03c4=40 and \u03c4=80 labels are identical on this window.",
+  "locked_tau": 20
+}

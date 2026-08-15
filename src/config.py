@@ -63,6 +63,8 @@ class PipelineConfig:
     # --- triple barrier / meta label ---
     pt: float = 1.0
     sl: float = 1.0
+    # Vertical barrier τ selected on IS via CPCV (results/vertical_tau_cpcv_*.json).
+    # 2024H1 CPCV with purge/embargo=100 → τ=20 (min mean logloss).
     vertical_bars: int = 20
     barrier_vol_span: int = 50
     simultaneous_touch_y: int = 0
@@ -97,7 +99,7 @@ class PipelineConfig:
     # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).
     boundary_purge: bool = True
     boundary_embargo: bool = True
-    # Vertical barrier τ is selected on IS via CPCV (candidate grid below).
+    # Vertical barrier τ candidate grid for IS CPCV selection.
     vertical_tau_candidates: tuple[int, ...] = (10, 20, 40, 80)
 
     extra: dict = field(default_factory=dict)
