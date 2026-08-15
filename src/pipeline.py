@@ -126,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", default=None, help="UTC day YYYY-MM-DD; default = latest published")
     parser.add_argument("--data-dir", default="data")
     parser.add_argument(
+        "--archive-dir",
+        default=None,
+        help="Local Vision archive root with monthly/ and daily/; if set, load ticks from there",
+    )
+    parser.add_argument(
         "--bar-type",
         default="dollar_imbalance",
         choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
@@ -154,7 +159,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     dest = Path(args.data_dir)
     day = date.fromisoformat(args.date) if args.date else None
-    ticks, day = load_or_download_day(config.symbol, dest, config.market, day)
+    archive_dir = Path(args.archive_dir) if args.archive_dir else None
+    ticks, day = load_or_download_day(
+        config.symbol, dest, config.market, day, archive_dir=archive_dir
+    )
 
     state_path = resolve_ewma_state_path(dest, config.symbol, day, args.ewma_state)
     initial_state = None if state_path is None else load_ewma_state(state_path)

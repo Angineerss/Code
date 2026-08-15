@@ -177,13 +177,60 @@ def load_aggtrades_zip(zip_path: Path) -> pd.DataFrame:
             return parse_aggtrades_csv(fh)
 
 
+def filter_ticks_day(ticks: pd.DataFrame, day: date) -> pd.DataFrame:
+    start = pd.Timestamp(day, tz="UTC")
+    end = start + pd.Timedelta(days=1)
+    out = ticks.loc[(ticks["timestamp"] >= start) & (ticks["timestamp"] < end)]
+    return out.reset_index(drop=True)
+
+
+def monthly_archive_path(archive_dir: Path, symbol: str, day: date) -> Path:
+    return archive_dir / "monthly" / f"{symbol.upper()}-aggTrades-{day.year:04d}-{day.month:02d}.zip"
+
+
+def daily_archive_path(archive_dir: Path, symbol: str, day: date) -> Path:
+    return archive_dir / "daily" / f"{symbol.upper()}-aggTrades-{day.isoformat()}.zip"
+
+
+def load_day_from_archive(
+    symbol: str,
+    day: date,
+    archive_dir: Path,
+    month_cache: dict[tuple[int, int], pd.DataFrame] | None = None,
+) -> pd.DataFrame:
+    """Load one UTC day from local Vision archive (daily zip preferred, else monthly)."""
+    daily = daily_archive_path(archive_dir, symbol, day)
+    if daily.exists() and daily.stat().st_size > 0:
+        return load_aggtrades_zip(daily)
+
+    monthly = monthly_archive_path(archive_dir, symbol, day)
+    if not monthly.exists() or monthly.stat().st_size <= 0:
+        raise FileNotFoundError(
+            f"No archive ticks for {symbol} on {day}: missing {daily.name} and {monthly.name}"
+        )
+    key = (day.year, day.month)
+    if month_cache is not None and key in month_cache:
+        month_ticks = month_cache[key]
+    else:
+        month_ticks = load_aggtrades_zip(monthly)
+        if month_cache is not None:
+            month_cache[key] = month_ticks
+    day_ticks = filter_ticks_day(month_ticks, day)
+    if day_ticks.empty:
+        raise FileNotFoundError(f"Archive month {monthly.name} has no rows for {day}")
+    return day_ticks
+
+
 def load_or_download_day(
     symbol: str,
     dest_dir: Path,
     market: str = "spot",
     day: date | None = None,
+    archive_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, date]:
     chosen = day or latest_available_day(symbol, market)
+    if archive_dir is not None:
+        return load_day_from_archive(symbol, chosen, archive_dir), chosen
     zip_path = dest_dir / f"{symbol.upper()}-aggTrades-{chosen.isoformat()}.zip"
     if not zip_path.exists():
         path = download_aggtrades_day(symbol, chosen, dest_dir, market, skip_existing=False)
