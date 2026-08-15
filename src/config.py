@@ -79,7 +79,7 @@ class PipelineConfig:
     meta_features: tuple[str, ...] = (
         "flow_strength",
         "cusum_excess_ratio",
-        "tick_count",
+        "tick_rel",
         "sigma",
     )
     meta_model: str = "random_forest"

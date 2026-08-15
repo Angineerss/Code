@@ -13,8 +13,8 @@
 - **동의 게이트:** `cusum_side == side` 인 이벤트만 남김 (어긋나면 폐기)
 - **Meta 피처 (잠금):**
   - 세기: `flow_strength = |θ|/E[θ]`, `cusum_excess_ratio = |S|/h` (넘긴 직후, 리셋 전)
-  - 맥락: `tick_count`, `sigma` (베리어와 동일 EWM σ)
-  - 미포함: `is_max_ticks`(flow_strength와 중복), `duration_s`(틱과 중복), 장 시간대, 모멘텀
+  - 맥락: `tick_rel = tick_count/E[T]` (바 종료 시점 E[T], EWMA 갱신 전), `sigma` (베리어와 동일 EWM σ)
+  - 미포함: 원시 `tick_count`, `is_max_ticks`, `duration_s`, 장 시간대, 모멘텀
 - 검증 = 트리플 베리어 메타 라벨 (`y_meta`). 인과(“가격이 taker 때문인가”)는 이 파이프라인의 범위 밖
 
 ## 확정 스펙
@@ -50,7 +50,7 @@
 | 이벤트 필터     | 불균형 바 종가 경로에 대칭 CUSUM. 시점 필터. `S±`는 AFML 식, 넘은 쪽만 리셋. `h = 1σ`. 이어서 flow 방향과 동의하는 이벤트만 채택. `--event-mode every_bar`면 CUSUM 생략(동의 게이트도 해당 없음)                                                                                                                 |
 | 트리플 베리어    | `pt=sl=1σ`, 수직장벽 `τ=20` 바, 경로는 바 high/low                                                                                                                                                                                                                    |
 | Meta 타깃    | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치                                                                                                                                                                                                                             |
-| Meta 피처    | `flow_strength`, `cusum_excess_ratio`, `tick_count`, `sigma`. `is_max_ticks`·`duration_s`·시간대·모멘텀 제외 |
+| Meta 피처    | `flow_strength`, `cusum_excess_ratio`, `tick_rel=tick_count/E[T]`, `sigma`. 원시 tick·is_max_ticks·duration·시간대·모멘텀 제외 |
 | Meta 모델    | Random Forest (이 레포는 라벨+피처까지; 학습기는 다음 단계)                                                                                                                                                                                                                                   |
 
 
@@ -80,7 +80,7 @@ Binance aggTrades
   → CUSUM filter (h = 1σ, reset crossed side only) picks candidate times
   → primary side = sign(signed dollar flow) on those bars
   → keep only cusum_side == side (aligned taker + price run)
-  → meta features: flow_strength, cusum_excess_ratio, tick_count, sigma
+  → meta features: flow_strength, cusum_excess_ratio, tick_rel, sigma
   → triple-barrier meta labels
   → CPCV
 ```

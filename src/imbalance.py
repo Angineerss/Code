@@ -25,6 +25,7 @@ BAR_COLUMNS = [
     "signed_flow",
     "threshold",
     "close_reason",
+    "expected_ticks",
 ]
 
 
@@ -108,6 +109,7 @@ def _bar_row(
     theta: float,
     threshold: float,
     reason: str,
+    expected_ticks: float,
 ) -> list[object]:
     sl = slice(start, end)
     px = arrays.price[sl]
@@ -131,6 +133,7 @@ def _bar_row(
         theta,
         threshold,
         reason,
+        float(expected_ticks),
     ]
 
 
@@ -239,6 +242,7 @@ def build_imbalance_bars(
                 theta,
                 threshold_now() if warmed else float(n_ticks),
                 close_reason,
+                expected_ticks,
             )
         )
         if close_reason == "warmup":
