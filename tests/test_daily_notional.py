@@ -75,3 +75,33 @@ def test_dollar_imbalance_uses_seeded_prior_year_threshold():
     )
     assert len(bars) >= 2
     assert set(bars["close_reason"]).issubset({"warmup", "imbalance", "max_ticks"})
+
+
+def test_prior_year_notional_clamps_to_listing(monkeypatch, tmp_path):
+    import pandas as pd
+
+    from src import daily_notional as mod
+
+    captured: dict = {}
+
+    def fake_load(symbol, start, end, cache_dir=None):
+        captured["start"] = start
+        captured["end"] = end
+        return pd.DataFrame(
+            {
+                "open_time": [pd.Timestamp("2017-09-01", tz="UTC")],
+                "quote_volume": [1_000_000.0],
+                "n_trades": [1000.0],
+            }
+        )
+
+    monkeypatch.setattr(mod, "load_or_fetch_daily_quote_notional", fake_load)
+    out = mod.prior_year_notional(
+        "BTCUSDT",
+        date(2018, 1, 1),
+        listing_date=date(2017, 8, 17),
+        cache_dir=tmp_path,
+    )
+    assert captured["start"] == date(2017, 8, 17)
+    assert captured["end"] == date(2017, 12, 31)
+    assert out.n_days == 1

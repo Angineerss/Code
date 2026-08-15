@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             divisor=config.imbalance_divisor,
             lookback_days=config.imbalance_lookback_days,
             cache_dir=klines_dir,
+            listing_date=config.archive_start,
         )
         seed = ImbalanceSeed(
             expected_imbalance=prior.threshold,

@@ -10,7 +10,7 @@ BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 SessionType = Literal["warmup", "research"]
-SplitName = Literal["is", "oos", "out_of_universe"]
+SplitName = Literal["warmup", "is", "oos", "out_of_universe"]
 PrimaryType = Literal["rule_bar_flow_sign", "rule_cusum_sign"]
 
 
@@ -22,12 +22,15 @@ class PipelineConfig:
     data_type: str = "aggTrades"
     timestamp_storage: str = "UTC"
     session_filter: str | None = None  # crypto trades 24/7
-    # Vision archive from BTCUSDT listing; research IS/OOS cut is separate below.
+    # Full Vision aggTrades on disk (BTCUSDT listing → last locked published day).
     archive_start: date = date(2017, 8, 17)
-    # Research tick universe for IS/OOS. OOS end is last published day at lock time.
-    universe_start: date = date(2024, 1, 1)
-    is_end: date = date(2025, 12, 31)
-    oos_start: date = date(2026, 1, 1)
+    # First year after listing: build D lookback + EWMA only (no IS/OOS labels).
+    warmup_end: date = date(2018, 8, 16)
+    # Research IS starts the day after warmup (first day with a full 365d prior for D).
+    universe_start: date = date(2018, 8, 17)
+    is_end: date = date(2024, 12, 31)
+    # Untouched holdout after IS. Do not tune on OOS.
+    oos_start: date = date(2025, 1, 1)
     oos_end: date = date(2026, 8, 13)
 
     # --- imbalance bars ---
@@ -64,25 +67,35 @@ class PipelineConfig:
     simultaneous_touch_y: int = 0
     timeout_y: int = 0
 
-    # --- models / validation (ratios TBD after horizon is locked) ---
+    # --- models / validation ---
+    # IS only: CPCV partitions labeled events into train vs CV-test paths.
+    # There is no separate fixed "IS holdout year"; OOS is the only untouched set.
     primary_type: PrimaryType = "rule_bar_flow_sign"
     primary_objective: str = "high_recall"
     meta_model: str = "random_forest"
     cv_method: str = "cpcv"
-    n_cpcv_groups: int = 5
-    n_cpcv_test_groups: int = 2
+    n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
+    n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
     purge_bars: int | None = None
     embargo_bars: int | None = None
 
     extra: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.warmup_end < self.archive_start:
+            raise ValueError("warmup_end must be on or after archive_start")
+        if self.universe_start != self.warmup_end + timedelta(days=1):
+            raise ValueError("IS must start the UTC day after warmup ends")
         if self.oos_start != self.is_end + timedelta(days=1):
             raise ValueError("OOS must start the UTC day after IS ends")
         if self.oos_start > self.oos_end:
             raise ValueError("OOS range is empty")
         if self.universe_start > self.is_end:
             raise ValueError("IS range is empty")
+        if self.n_cpcv_groups < 2:
+            raise ValueError("n_cpcv_groups must be >= 2")
+        if not (1 <= self.n_cpcv_test_groups < self.n_cpcv_groups):
+            raise ValueError("n_cpcv_test_groups must be in [1, n_cpcv_groups)")
 
     def resolved_purge_bars(self) -> int:
         return self.vertical_bars if self.purge_bars is None else self.purge_bars
@@ -91,14 +104,32 @@ class PipelineConfig:
         return self.vertical_bars if self.embargo_bars is None else self.embargo_bars
 
     def split_for_day(self, day: date) -> SplitName:
-        if day < self.universe_start or day > self.oos_end:
+        if day < self.archive_start or day > self.oos_end:
             return "out_of_universe"
+        if day <= self.warmup_end:
+            return "warmup"
         if day <= self.is_end:
             return "is"
         return "oos"
+
+    def warmup_range(self) -> tuple[date, date]:
+        return self.archive_start, self.warmup_end
 
     def is_range(self) -> tuple[date, date]:
         return self.universe_start, self.is_end
 
     def oos_range(self) -> tuple[date, date]:
         return self.oos_start, self.oos_end
+
+    def cpcv_path_count(self) -> int:
+        """Number of combinatorial CPCV paths: C(n_groups, n_test_groups)."""
+        n = self.n_cpcv_groups
+        k = self.n_cpcv_test_groups
+        if k < 0 or k > n:
+            return 0
+        num = 1
+        den = 1
+        for i in range(k):
+            num *= n - i
+            den *= i + 1
+        return num // den

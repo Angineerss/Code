@@ -43,9 +43,13 @@ def cpcv_splits(
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     """Yield (train_idx, test_idx) paths with purge + embargo.
 
-    Purge/embargo *ratios* stay TBD; until then lengths default to the
-    vertical barrier (``config.resolved_*_bars``). Embargo is approximated
-    as ``embargo_bars * median bar duration``.
+    Runs on **IS-labeled events only**. Contiguous time groups form the CV
+    partition: each path uses ``n_cpcv_test_groups`` as the CV fold and the
+    remaining groups as train (after purge/embargo). OOS must not enter here.
+
+    Purge/embargo lengths default to the vertical barrier
+    (``config.resolved_*_bars``). Embargo is approximated as
+    ``embargo_bars * median bar duration``.
     """
     n = len(labeled)
     if n == 0:

@@ -180,8 +180,21 @@ def prior_year_notional(
     divisor: int = 650,
     lookback_days: int = 365,
     cache_dir: Path | None = None,
+    listing_date: date | None = None,
 ) -> PriorYearNotional:
+    """Average daily quote notional over the sliding window ending yesterday.
+
+    ``listing_date`` clamps the window start (BTCUSDT Vision listing) so early
+    warmup days do not request pre-listing klines.
+    """
     start, end = prior_year_window(as_of, lookback_days)
+    if listing_date is not None:
+        start = max(start, listing_date)
+    if start > end:
+        raise FileNotFoundError(
+            f"No prior-notional window for {symbol} as_of={as_of}: "
+            f"clamped start {start} > end {end}"
+        )
     daily = load_or_fetch_daily_quote_notional(symbol, start, end, cache_dir)
     if daily.empty:
         raise FileNotFoundError(f"No daily quote volume for {symbol} in {start}..{end}")
