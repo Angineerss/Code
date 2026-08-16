@@ -15,6 +15,12 @@ if str(ROOT) not in sys.path:
 
 import pandas as pd
 
+from src.checkpoint import (
+    day_is_complete,
+    push_checkpoints,
+    restore_checkpoints,
+    save_day_checkpoint,
+)
 from src.config import PipelineConfig
 from src.daily_notional import prior_year_notional
 from src.download import load_day_from_archive
@@ -51,7 +57,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Skip days that already have bars.csv and ewma_state.json",
+        help="Skip days that already have EWMA (and labels, unless --bars-only)",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        default="results/checkpoints",
+        help="Tracked dir for EWMA/labels/progress (survives data/ wipes)",
+    )
+    parser.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="Do not copy day artifacts into --checkpoint-dir",
+    )
+    parser.add_argument(
+        "--push-checkpoint",
+        action="store_true",
+        help="git commit + push results/checkpoints after --checkpoint-every days",
+    )
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=1,
+        help="Push a checkpoint every N newly finished days (default 1)",
     )
     parser.add_argument(
         "--allow-oos",
@@ -75,14 +102,20 @@ def main(argv: list[str] | None = None) -> int:
     archive_dir = Path(args.archive_dir)
     out_dir = Path(args.out_dir)
     klines_dir = Path(args.klines_dir)
+    checkpoint_root = Path(args.checkpoint_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if not args.no_checkpoint:
+        n_restored = restore_checkpoints(checkpoint_root, out_dir)
+        if n_restored:
+            print(f"[checkpoint] restored {n_restored} files → {out_dir}", flush=True)
 
     month_cache: dict[tuple[int, int], pd.DataFrame] = {}
     rows: list[dict] = []
+    finished_since_push = 0
     for day in daterange(start, end):
-        bars_path = out_dir / f"{config.symbol}_{day}_bars.csv"
-        ewma_path = out_dir / f"{config.symbol}_{day}_ewma_state.json"
-        if args.skip_existing and bars_path.exists() and ewma_path.exists():
+        if args.skip_existing and day_is_complete(
+            out_dir, config.symbol, day, bars_only=bool(args.bars_only)
+        ):
             print(f"[skip] {day.isoformat()}", flush=True)
             try:
                 summary = json.loads((out_dir / f"{config.symbol}_{day}_summary.json").read_text())
@@ -90,7 +123,6 @@ def main(argv: list[str] | None = None) -> int:
                 summary = {
                     "day": day.isoformat(),
                     "split": config.split_for_day(day),
-                    "n_bars": int(len(pd.read_csv(bars_path))),
                     "skipped": True,
                 }
             rows.append(
@@ -146,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
                 ticks, config, seed=seed, initial_state=initial_state
             )
 
+        bars_path = out_dir / f"{config.symbol}_{day}_bars.csv"
+        ewma_path = out_dir / f"{config.symbol}_{day}_ewma_state.json"
         bars.to_csv(bars_path, index=False)
         if not args.bars_only:
             events.to_csv(out_dir / f"{config.symbol}_{day}_events.csv", index=False)
@@ -204,6 +238,25 @@ def main(argv: list[str] | None = None) -> int:
         (out_dir / f"{config.symbol}_{start}_{end}_progress.json").write_text(
             json.dumps(progress, indent=2, default=str)
         )
+        if not args.no_checkpoint:
+            save_day_checkpoint(
+                out_dir,
+                checkpoint_root,
+                config.symbol,
+                day,
+                start=start,
+                end=end,
+            )
+            finished_since_push += 1
+            every = max(int(args.checkpoint_every), 1)
+            if args.push_checkpoint and finished_since_push >= every:
+                status = push_checkpoints(
+                    ROOT,
+                    checkpoint_root,
+                    f"checkpoint: {out_dir.name} last_day={day.isoformat()}",
+                )
+                print(f"[checkpoint] {status}", flush=True)
+                finished_since_push = 0
 
     manifest = {
         "symbol": config.symbol,
@@ -217,6 +270,22 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / f"{config.symbol}_{start}_{end}_range_summary.json").write_text(
         json.dumps(manifest, indent=2, default=str)
     )
+    if not args.no_checkpoint:
+        save_day_checkpoint(
+            out_dir,
+            checkpoint_root,
+            config.symbol,
+            end,
+            start=start,
+            end=end,
+        )
+        if args.push_checkpoint and finished_since_push:
+            status = push_checkpoints(
+                ROOT,
+                checkpoint_root,
+                f"checkpoint: {out_dir.name} range_done {start}..{end}",
+            )
+            print(f"[checkpoint] {status}", flush=True)
     print(json.dumps({"done": True, "n_days": len(rows)}, indent=2), flush=True)
     return 0
 

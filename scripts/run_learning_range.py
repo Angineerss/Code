@@ -43,6 +43,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--skip-existing", action="store_true")
     p.add_argument(
+        "--checkpoint-dir",
+        default="results/checkpoints",
+        help="Tracked checkpoint dir (EWMA/labels/progress). Survives data/ wipes.",
+    )
+    p.add_argument(
+        "--push-checkpoint",
+        action="store_true",
+        help="git commit + push checkpoints after each finished day",
+    )
+    p.add_argument("--checkpoint-every", type=int, default=1)
+    p.add_argument(
         "--warmup-only",
         action="store_true",
         help="Stop after warmup bars/EWMA (no IS labels).",
@@ -86,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
         "note": "OOS excluded. IS labels validated only via CPCV.",
     }
     (out_dir / "learning_manifest.json").write_text(json.dumps(manifest, indent=2))
+    ckpt = Path(args.checkpoint_dir) / out_dir.name
+    ckpt.mkdir(parents=True, exist_ok=True)
+    (ckpt / "learning_manifest.json").write_text(json.dumps(manifest, indent=2))
     print(json.dumps(manifest, indent=2), flush=True)
 
     py = sys.executable
@@ -103,9 +117,15 @@ def main(argv: list[str] | None = None) -> int:
         str(out_dir),
         "--primary",
         args.primary,
+        "--checkpoint-dir",
+        args.checkpoint_dir,
+        "--checkpoint-every",
+        str(args.checkpoint_every),
     ]
     if args.skip_existing:
         common.append("--skip-existing")
+    if args.push_checkpoint:
+        common.append("--push-checkpoint")
 
     if not args.is_only:
         # Warmup: bars + EWMA only.
