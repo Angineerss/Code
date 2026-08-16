@@ -1,0 +1,28 @@
+{
+  "run_root": "data/runs/is_tau_2024h1",
+  "n_is_labels_raw": 8181,
+  "n_meta_after_boundary": 8181,
+  "y_meta_rate": 0.4811147781444811,
+  "cv_method": "cpcv",
+  "selection_method": "cpcv_only",
+  "n_cpcv_groups": 6,
+  "n_cpcv_test_groups": 2,
+  "expected_paths": 15,
+  "n_paths": 15,
+  "train_size_mean": 3626.8,
+  "test_size_mean": 2727.0,
+  "vertical_bars": 20,
+  "purge_bars": 20,
+  "embargo_bars": 20,
+  "seconds_per_bar": 432.119,
+  "purge_seconds": 8642,
+  "embargo_seconds": 8642,
+  "oos_range": [
+    "2025-01-01",
+    "2026-08-13"
+  ],
+  "oos_touched": false,
+  "boundary_policy": "A_purge_embargo_1tau",
+  "window": "2024-01-01..2024-06-30",
+  "note": "IS-only CPCV smoke on 2024H1 labels; full learning run builds 2017-08-17..2024-12-31."
+}

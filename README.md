@@ -96,6 +96,9 @@ pip install -r requirements.txt
 pytest
 # Vision aggTrades archive from listing (monthly zips + open-month dailies; ~58GB+)
 python scripts/download_aggtrades_archive.py --data-dir data/aggtrades
+# Learning range only (warmup bars → IS labels). OOS forbidden. CV = CPCV on IS.
+python scripts/run_learning_range.py --skip-existing
+python scripts/summarize_is_cpcv.py --run-root data/runs/learning_2017-08-17_2024-12-31
 python -m src --symbol BTCUSDT --date 2024-01-15
 python -m src --symbol BTCUSDT --date 2024-01-16
 python -m src --symbol BTCUSDT --date 2024-01-15 --event-mode every_bar
