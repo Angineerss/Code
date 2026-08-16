@@ -97,7 +97,7 @@ pytest
 # Vision aggTrades archive from listing (monthly zips + open-month dailies; ~58GB+)
 python scripts/download_aggtrades_archive.py --data-dir data/aggtrades
 # Learning range only (warmup bars → IS labels). OOS forbidden. CV = CPCV on IS.
-python scripts/run_learning_range.py --skip-existing
+python scripts/run_learning_range.py --skip-existing --push-checkpoint
 python scripts/summarize_is_cpcv.py --run-root data/runs/learning_2017-08-17_2024-12-31
 python -m src --symbol BTCUSDT --date 2024-01-15
 python -m src --symbol BTCUSDT --date 2024-01-16
@@ -113,4 +113,24 @@ python scripts/compare_vertical_tau.py --run-root data/runs/<is_run>
 - `{SYMBOL}_{day}_labels.csv`
 - `{SYMBOL}_{day}_ewma_state.json` (다음 날 EWMA 이어받기)
 - `{SYMBOL}_{day}_summary.json`
+
+## 클라우드 디스크가 날아가는 경우
+
+`data/` 는 gitignore + 클라우드 VM 디스크라서 **환경이 리셋되면 틱 zip과 런 산출물이 같이 사라집니다.** 틱은 Vision에서 다시 받으면 되고, 계산된 EWMA/라벨은 다시 만들 비용이 큽니다.
+
+방지:
+
+1. **하루가 끝날 때마다** `results/checkpoints/<run_id>/` 에 EWMA, summary, labels/events를 복사 (이 폴더는 커밋 대상)
+2. **`--push-checkpoint`** 로 그날 체크포인트를 git push. 새 에이전트는 코드와 함께 체크포인트를 받음
+3. 재개: 체크포인트가 `data/runs/...` 로 복구된 뒤 `--skip-existing` (완료된 날은 건너뛰고, 마지막 EWMA부터 이어감)
+4. aggTrades zip은 저장소에 넣지 않음. `download_aggtrades_archive.py` 의 skip_existing으로 Vision에서 다시 받음
+
+```bash
+# 새 클라우드 세션
+git pull
+python scripts/restore_checkpoints.py --run-id learning_2017-08-17_2024-12-31
+python scripts/download_aggtrades_archive.py --data-dir data/aggtrades
+python scripts/run_learning_range.py --skip-existing --push-checkpoint
+```
+
 

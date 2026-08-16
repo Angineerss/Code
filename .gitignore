@@ -6,6 +6,8 @@ venv/
 data/
 *.zip
 *.csv
+!results/checkpoints/**
+!results/checkpoints/**/*.csv
 .DS_Store
 .coverage
 htmlcov/
