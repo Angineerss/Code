@@ -100,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         "purge_bars": config.resolved_purge_bars(),
         "embargo_bars": config.resolved_embargo_bars(),
         "vertical_bars": config.vertical_bars,
+        "require_strong_imbalance": config.require_strong_imbalance,
         "boundary_policy": "A_purge_embargo_1tau",
         "note": "OOS excluded. IS labels validated only via CPCV.",
     }

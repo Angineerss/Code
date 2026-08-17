@@ -29,13 +29,22 @@ def run_from_ticks(
     if config.session == "warmup":
         empty = bars.iloc[0:0]
         return bars, empty, empty, [], state
+    events, labeled, splits = label_from_bars(bars, config)
+    return bars, events, labeled, splits, state
+
+
+def label_from_bars(bars, config: PipelineConfig):
+    """Events + triple-barrier labels from existing bars (no tick rebuild)."""
+    empty = bars.iloc[0:0]
+    if bars.empty:
+        return empty, empty, []
     usable = bars.loc[bars["close_reason"] != "warmup"].reset_index(drop=True)
     events = select_events(usable, config)
     labeled = apply_triple_barrier(usable, events, config)
     labeled = attach_meta_features(usable, labeled, vol_span=config.barrier_vol_span)
     events = attach_meta_features(usable, events, vol_span=config.barrier_vol_span)
     splits = list(cpcv_splits(labeled, config))
-    return bars, events, labeled, splits, state
+    return events, labeled, splits
 
 
 def load_ewma_state(path: Path) -> EwmaState:

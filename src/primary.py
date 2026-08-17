@@ -12,7 +12,7 @@ def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConf
     """Attach primary ``side`` from the dollar-imbalance formula, then gates.
 
     Default primary is ``sign(signed_flow)`` = sign(θ) on the dollar bar.
-    ``require_strong_imbalance`` keeps bars with |θ| ≥ E[θ].
+    Weak bars stay in (high recall). ``require_strong_imbalance`` is contrast-only.
     """
     if events.empty:
         out = events.copy()
@@ -23,6 +23,9 @@ def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConf
     out = events.copy()
     out["side"] = side.astype(np.int8)
     out = out.loc[out["side"] != 0]
+    if "close_reason" in bars.columns:
+        reason = out["bar_id"].map(bars.set_index("bar_id")["close_reason"])
+        out = out.loc[reason != "warmup"]
     if config.require_cusum_flow_agree and "cusum_side" in out.columns:
         cusum = pd.to_numeric(out["cusum_side"], errors="coerce")
         if cusum.notna().any():
@@ -33,16 +36,13 @@ def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConf
 def filter_strong_imbalance(
     bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConfig
 ) -> pd.DataFrame:
-    """Keep events where |θ| ≥ E[θ] (dollar-imbalance formula), excluding warmup."""
+    """Keep events where |θ| ≥ E[θ] (dollar-imbalance formula). Contrast-only."""
     if events.empty or not config.require_strong_imbalance:
         return events
     by_id = bars.set_index("bar_id")
     flow = pd.to_numeric(events["bar_id"].map(by_id["signed_flow"]), errors="coerce")
     thr = pd.to_numeric(events["bar_id"].map(by_id["threshold"]), errors="coerce")
     keep = flow.abs() >= thr.abs().clip(lower=1e-12)
-    if "close_reason" in by_id.columns:
-        reason = events["bar_id"].map(by_id["close_reason"])
-        keep = keep & (reason != "warmup")
     return events.loc[keep]
 
 

@@ -168,6 +168,28 @@ def test_every_bar_events_follow_order_flow():
     assert set(events["side"].unique()) == {1}
 
 
+def test_default_primary_keeps_weak_imbalance():
+    ts = pd.date_range("2024-01-15", periods=4, freq="1min", tz="UTC")
+    bars = pd.DataFrame(
+        {
+            "bar_id": [0, 1, 2, 3],
+            "end_ts": ts,
+            "signed_flow": [1.2, 0.3, -1.5, 2.0],
+            "threshold": [1.0, 1.0, 1.0, 1.0],
+            "close_reason": ["dollar", "dollar", "max_ticks", "warmup"],
+            "tick_count": [10, 10, 40, 20],
+            "expected_ticks": [20.0, 20.0, 20.0, 20.0],
+            "log_ret": [0.01, 0.0, -0.01, 0.0],
+            "close": [100.0, 100.1, 99.9, 100.0],
+        }
+    )
+    events = select_events(
+        bars,
+        tight_config(event_mode="every_bar", require_cusum_flow_agree=False),
+    )
+    assert set(events["bar_id"].tolist()) == {0, 1, 2}
+
+
 def test_require_strong_imbalance_keeps_theta_hits_only():
     ts = pd.date_range("2024-01-15", periods=4, freq="1min", tz="UTC")
     bars = pd.DataFrame(
@@ -206,6 +228,7 @@ def test_default_pipeline_uses_dollar_clock():
     assert set(usable["close_reason"]).issubset({"dollar", "max_ticks"})
     assert (usable["close_reason"] == "dollar").any()
     assert not events.empty
+    assert len(events) == len(usable)
 
 
 def test_control_dollar_imbalance_pipeline_still_runs():
@@ -215,7 +238,6 @@ def test_control_dollar_imbalance_pipeline_still_runs():
         tight_config(
             bar_type="dollar_imbalance",
             event_mode="every_bar",
-            require_strong_imbalance=True,
         ),
     )
     usable = bars.loc[bars["close_reason"] != "warmup"]

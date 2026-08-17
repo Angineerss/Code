@@ -17,7 +17,7 @@ def test_meta_feature_names_locked_set():
     assert PipelineConfig().meta_features == META_FEATURE_NAMES
     assert PipelineConfig().event_mode == "every_bar"
     assert PipelineConfig().bar_type == "dollar"
-    assert PipelineConfig().require_strong_imbalance is True
+    assert PipelineConfig().require_strong_imbalance is False
     assert PipelineConfig().require_cusum_flow_agree is False
     assert PipelineConfig(bar_type="dollar_imbalance").bar_type == "dollar_imbalance"
 

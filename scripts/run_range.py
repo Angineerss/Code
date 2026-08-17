@@ -24,7 +24,13 @@ from src.config import PipelineConfig
 from src.daily_notional import prior_year_notional
 from src.download import load_day_from_archive
 from src.imbalance import ImbalanceSeed, build_bars
-from src.pipeline import load_ewma_state, resolve_ewma_state_path, run_from_ticks, _summarize
+from src.pipeline import (
+    _summarize,
+    label_from_bars,
+    load_ewma_state,
+    resolve_ewma_state_path,
+    run_from_ticks,
+)
 
 
 def daterange(start: date, end: date):
@@ -60,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Build bars + EWMA only (skip events/labels)",
     )
     parser.add_argument(
+        "--relabel",
+        action="store_true",
+        help="Reuse existing bars.csv; rewrite events/labels only (no tick rebuild)",
+    )
+    parser.add_argument(
         "--skip-existing",
         action="store_true",
         help="Skip days that already have bars.csv and ewma_state.json",
@@ -92,12 +103,20 @@ def main(argv: list[str] | None = None) -> int:
     klines_dir = Path(args.klines_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.bars_only and args.relabel:
+        raise SystemExit("--relabel cannot be combined with --bars-only")
+
     month_cache: dict[tuple[int, int], pd.DataFrame] = {}
     rows: list[dict] = []
     for day in daterange(start, end):
         bars_path = out_dir / f"{config.symbol}_{day}_bars.csv"
         ewma_path = out_dir / f"{config.symbol}_{day}_ewma_state.json"
-        if args.skip_existing and bars_path.exists() and ewma_path.exists():
+        if (
+            args.skip_existing
+            and not args.relabel
+            and bars_path.exists()
+            and ewma_path.exists()
+        ):
             print(f"[skip] {day.isoformat()}", flush=True)
             try:
                 summary = json.loads((out_dir / f"{config.symbol}_{day}_summary.json").read_text())
@@ -131,6 +150,71 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError as exc:
                 print(str(exc), file=sys.stderr, flush=True)
                 return 2
+
+        if args.relabel:
+            if config.split_for_day(day) == "warmup":
+                print(f"[skip] {day.isoformat()} (warmup)", flush=True)
+                continue
+            if not bars_path.exists():
+                print(f"[skip] {day.isoformat()} (no bars)", flush=True)
+                continue
+            bars = pd.read_csv(bars_path)
+            for col in ("start_ts", "end_ts"):
+                if col in bars.columns:
+                    bars[col] = pd.to_datetime(bars[col], utc=True, format="ISO8601")
+            events, labeled, splits = label_from_bars(bars, config)
+            events.to_csv(out_dir / f"{config.symbol}_{day}_events.csv", index=False)
+            labeled.to_csv(out_dir / f"{config.symbol}_{day}_labels.csv", index=False)
+            try:
+                summary = json.loads((out_dir / f"{config.symbol}_{day}_summary.json").read_text())
+            except FileNotFoundError:
+                summary = {"day": day.isoformat(), "n_ticks": None}
+            summary.update(
+                {
+                    "n_events": int(len(events)),
+                    "n_labels": int(len(labeled)),
+                    "y_meta_rate": None if labeled.empty else float(labeled["y_meta"].mean()),
+                    "require_strong_imbalance": config.require_strong_imbalance,
+                    "relabeled": True,
+                    "bars_only": False,
+                    "split": config.split_for_day(day),
+                    "touch_types": None
+                    if labeled.empty
+                    else labeled["touch_type"].value_counts().to_dict(),
+                }
+            )
+            (out_dir / f"{config.symbol}_{day}_summary.json").write_text(
+                json.dumps(summary, indent=2, default=str)
+            )
+            print(
+                json.dumps(
+                    {
+                        "day": day.isoformat(),
+                        "split": summary["split"],
+                        "n_bars": int(len(bars)),
+                        "n_events": summary["n_events"],
+                        "n_labels": summary["n_labels"],
+                        "relabeled": True,
+                    },
+                    indent=2,
+                    default=str,
+                ),
+                flush=True,
+            )
+            rows.append(
+                {
+                    "day": day.isoformat(),
+                    "split": summary["split"],
+                    "n_ticks": summary.get("n_ticks"),
+                    "n_bars": int(len(bars)),
+                    "n_events": summary["n_events"],
+                    "y_meta_rate": summary.get("y_meta_rate"),
+                    "skipped": False,
+                    "relabeled": True,
+                }
+            )
+            continue
+
         ticks = load_day_from_archive(config.symbol, day, archive_dir, month_cache=month_cache)
         keep = (day.year, day.month)
         for key in list(month_cache):

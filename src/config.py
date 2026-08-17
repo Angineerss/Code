@@ -65,8 +65,9 @@ class PipelineConfig:
     cusum_vol_span: int = 50
     cusum_k: float = 1.0  # h = 1 * EWM std of bar log-returns (AFML vol-scaled threshold)
     cusum_absolute_h: float = 0.001
-    # Meta/event gate: keep dollar bars where |θ| ≥ E[θ] (imbalance formula).
-    require_strong_imbalance: bool = True
+    # Optional contrast only. Default off so primary keeps every non-warmup
+    # dollar bar (high recall). Strength is a meta feature (flow_strength).
+    require_strong_imbalance: bool = False
 
     # --- triple barrier / meta label ---
     # Operating point (not CPCV-min): 1σ died on the next bar; 3σ needed ~24
@@ -80,8 +81,8 @@ class PipelineConfig:
     timeout_y: int = 0
 
     # --- models / validation ---
-    # Treatment hypothesis: sample on a dollar clock (T$), then bet sign(θ)
-    # when |θ| ≥ E[θ]. Primary does not close the bar.
+    # Treatment: sample on a dollar clock (T$), bet sign(θ) on every bar.
+    # |θ|/E[θ] is a meta feature — primary does not drop weak bars.
     # Control: dollar_imbalance bars already close on |θ| ≥ E[θ]; primary is
     # the same sign(θ) — clock and direction overlap on purpose.
     primary_type: PrimaryType = "rule_bar_flow_sign"

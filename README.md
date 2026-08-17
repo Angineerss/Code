@@ -11,15 +11,14 @@
 | | 본실험 (`--bar-type dollar`, 기본) | 대조군 (`--bar-type dollar_imbalance`) |
 | --- | --- | --- |
 | 정보 구조 (언제 자를지) | 거래대금이 T$에 닿으면 자른다 | `|θ|`가 E[θ]에 닿으면 자른다 (원래 샘플러) |
-| Primary (어느 쪽) | `sign(θ)` = `sign(signed_flow)` | 동일 |
-| Meta 게이트 | `|θ| ≥ E[θ]` (`require_strong_imbalance`) | 동일. 대조군은 대부분의 바가 이미 이 조건으로 닫힘 |
+| Primary (어느 쪽) | `sign(θ)` = `sign(signed_flow)`. 약한 θ도 남김 (recall) | 동일 |
+| 세기 | 메타 피처 `flow_strength = |θ|/E[θ]`. Primary가 자르지 않음 | 시계가 이미 `|θ| ≥ E[θ]`로 닫혀 세기가 바에 묶임 |
 | 겹침 | 시계와 방향이 분리됨 | 시계와 방향이 같은 불균형 공식 |
 
 운영 규칙:
 
 - 정보 구조 = **달러 바**. 시드 `D = (어제까지 365 UTC일 일별 quote 평균) / 650`. T$는 달러로 닫힐 때마다 EWMA, `[0.5D, 2D]` 클립. E[θ]는 같은 바에서 계산만 하고 자르는 데는 안 씀
-- Primary = **방향** = `sign(θ)`. θ, E[θ], `|2b-1|`, E[T], E[size], EWMA span=50은 예전 달러 불균형 수식 그대로
-- **Meta 게이트:** `|θ| ≥ E[θ]` 인 바만 (`max_ticks`이면서 약한 θ는 폐기). `close_reason == imbalance`가 아님
+- Primary = **방향** = `sign(θ)`. 약한 불균형도 샘플에 남긴다 (recall 우선). `|θ| ≥ E[θ]`로 미리 자르지 않음 (`require_strong_imbalance`는 대조 실험용)
 - **Meta 피처:**
   - 세기: `flow_strength = |θ|/E[θ]`
   - 맥락: `tick_rel = tick_count/E[T]` (바 종료 시점 E[T], EWMA 갱신 전), `sigma` (베리어와 동일 EWM σ)
@@ -58,7 +57,7 @@
 | 바          | **달러 바** (본실험). 시드 `D = (슬라이딩 365 UTC일 일별 quote 거래대금 평균) / 650`. 창은 **어제까지**. T$는 달러로 닫힐 때마다 EWMA, 그날 슬라이딩 D의 `[0.5D, 2D]`로만 클립. E[θ]는 기록만. `init_T = 20,000`, `max_ticks = 50,000`, `init_b = 0.5`. 첫날만 `init_T` 틱 워밍업(라벨 제외). 대조군은 `--bar-type dollar_imbalance` (닫힘 = `|θ| ≥ E[θ]`) |
 | Primary    | 규칙 기반. `sign(signed_flow)` = `sign(θ)`. 바를 자르는 규칙이 아님. `--primary rule_cusum_sign`은 대조 실험용                                                                                                                   |
 | Primary 목표 | recall 우선 (precision은 Meta가 회수)                                                                                                                                                                                                                              |
-| 이벤트       | 달러 바 종가. `require_strong_imbalance=True`이면 `|θ| ≥ E[θ]`인 바만. `--event-mode cusum`은 대조 실험용                                                                                                                 |
+| 이벤트       | 달러 바 종가. Primary는 `sign(θ)`만. `--event-mode cusum`은 대조 실험용                                                                                                                 |
 | 트리플 베리어    | `pt=sl=2σ`, 수직장벽 **τ=30** (운영값. 1σ는 다음 바에 종료, 3σ는 ~24바가 필요. CPCV 로그로스 최솟값이 아님; `results/pt_sl_tau_cpcv_2018-08-17_2021-01-17.json`). 경로는 바 high/low |
 | Meta 타깃    | `y=1` 익절 선터치, `y=0` 손절·타임아웃·동시터치                                                                                                                                                                                                                             |
 | Meta 피처    | `flow_strength`, `tick_rel=tick_count/E[T]`, `sigma`. 가격 확인 강도(`cusum_excess_ratio`)·원시 tick·duration·시간대·모멘텀 제외 |
@@ -90,8 +89,9 @@ Binance aggTrades
   → bars capped at max_ticks=50,000
   → D_seed = sliding 365d average daily quote notional ending yesterday / 650
   → dollar bars close on T$; E[θ] is recorded, not used to close
-  → event = bar close with |θ| ≥ E[θ] (require_strong_imbalance)
-  → primary side = sign(θ) = sign(signed dollar flow)
+  → event = every dollar-bar close (warmup excluded)
+  → primary side = sign(θ); weak |θ| kept for recall
+  → meta sees strength via flow_strength = |θ|/E[θ]
   → control clock: --bar-type dollar_imbalance (separate out-dir)
   → meta features: flow_strength, tick_rel, sigma
   → triple-barrier meta labels
