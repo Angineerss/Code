@@ -1,12 +1,12 @@
 """Meta-label features at event time (no look-ahead).
 
 Hypothesis strength:
-- flow_strength: |θ| / E[θ] from the dollar-imbalance formula on the dollar bar
+- flow_strength: |θ| / that bar's quote notional (one-sided fraction of the bar's dollars)
 
 Context:
-- tick_rel: tick_count / E[T] at bar close (E[T] before EWMA update)
 - sigma: same EWM bar-log-return vol used for barriers
 
+E[T] is not a meta feature. It is control-clock only (dollar_imbalance close / max_ticks).
 Price-run confirmation (|S|/h) is not a meta feature.
 """
 
@@ -19,7 +19,6 @@ from .barriers import barrier_volatility
 
 META_FEATURE_NAMES = (
     "flow_strength",
-    "tick_rel",
     "sigma",
 )
 
@@ -38,19 +37,13 @@ def attach_meta_features(
 
     by_id = bars.set_index("bar_id")
     flow = out["bar_id"].map(by_id["signed_flow"]).to_numpy(dtype=float)
-    bar_thr = out["bar_id"].map(by_id["threshold"]).to_numpy(dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        strength = np.abs(flow) / np.maximum(np.abs(bar_thr), 1e-12)
-    out["flow_strength"] = strength
-
-    ticks = out["bar_id"].map(by_id["tick_count"]).to_numpy(dtype=float)
-    if "expected_ticks" in by_id.columns:
-        et = out["bar_id"].map(by_id["expected_ticks"]).to_numpy(dtype=float)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            out["tick_rel"] = ticks / np.maximum(et, 1e-12)
+    if "quote_volume" in bars.columns:
+        denom = out["bar_id"].map(by_id["quote_volume"]).to_numpy(dtype=float)
     else:
-        # Older bars CSVs omit E[T]; tick_rel cannot be formed — leave NaN.
-        out["tick_rel"] = np.nan
+        denom = out["bar_id"].map(by_id["threshold"]).to_numpy(dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        strength = np.abs(flow) / np.maximum(np.abs(denom), 1e-12)
+    out["flow_strength"] = strength
 
     # Prefer barrier-computed sigma on labeled rows; otherwise match barrier formula.
     if "sigma" in out.columns and pd.to_numeric(out["sigma"], errors="coerce").notna().all():

@@ -6,7 +6,7 @@ RandomForest meta setup as ``compare_vertical_tau.py`` (uniqueness weights,
 CPCV, purge/embargo = 1τ).
 
 Does **not** touch OOS. Requires precomputed daily bars + events under a run
-root. Default multipliers: 3, 3.5, 4. Pass ``--taus`` for a joint grid;
+root. Default multiplier: 1 (operating pt=sl=1σ). Pass ``--taus`` for a joint grid;
 otherwise a single ``--tau`` (config default) is used.
 
 Clock-agnostic: pass a treatment or control ``--run-root`` (do not mix).
@@ -42,8 +42,8 @@ def main() -> None:
         "--multipliers",
         type=float,
         nargs="+",
-        default=[3.0, 3.5, 4.0],
-        help="Symmetric pt=sl σ multiples (default: 3 3.5 4)",
+        default=[1.0],
+        help="Symmetric pt=sl σ multiples (default: 1 = operating point)",
     )
     p.add_argument(
         "--tau",

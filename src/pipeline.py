@@ -47,8 +47,19 @@ def label_from_bars(bars, config: PipelineConfig):
     return events, labeled, splits
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write via a sibling temp file so readers never see a truncated JSON."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
+
 def load_ewma_state(path: Path) -> EwmaState:
-    payload = json.loads(path.read_text())
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError(f"EWMA state file is empty: {path}")
+    payload = json.loads(text)
     return EwmaState(
         expected_ticks=float(payload["expected_ticks"]),
         b=float(payload["b"]),
@@ -66,7 +77,9 @@ def resolve_ewma_state_path(dest: Path, symbol: str, day: date, explicit: str | 
             raise FileNotFoundError(f"EWMA state not found: {path}")
         return path
     candidate = dest / f"{symbol}_{day - timedelta(days=1)}_ewma_state.json"
-    return candidate if candidate.exists() else None
+    if candidate.exists() and candidate.stat().st_size > 2:
+        return candidate
+    return None
 
 
 def _median(series) -> float | None:
@@ -235,8 +248,9 @@ def main(argv: list[str] | None = None) -> int:
 
     dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
-    (dest / f"{config.symbol}_{day}_ewma_state.json").write_text(
-        json.dumps(asdict(state), indent=2)
+    atomic_write_text(
+        dest / f"{config.symbol}_{day}_ewma_state.json",
+        json.dumps(asdict(state), indent=2),
     )
     if config.session != "warmup":
         labeled.to_csv(dest / f"{config.symbol}_{day}_labels.csv", index=False)
@@ -246,8 +260,9 @@ def main(argv: list[str] | None = None) -> int:
     summary["ewma_state_loaded_from"] = None if state_path is None else str(state_path)
     summary["ewma_continued"] = initial_state is not None
     print(json.dumps(summary, indent=2, default=str))
-    (dest / f"{config.symbol}_{day}_summary.json").write_text(
-        json.dumps(summary, indent=2, default=str)
+    atomic_write_text(
+        dest / f"{config.symbol}_{day}_summary.json",
+        json.dumps(summary, indent=2, default=str),
     )
     return 0
 

@@ -25,7 +25,9 @@ from src.daily_notional import prior_year_notional
 from src.download import load_day_from_archive
 from src.imbalance import ImbalanceSeed, build_bars
 from src.pipeline import (
+    _feature_medians,
     _summarize,
+    atomic_write_text,
     label_from_bars,
     load_ewma_state,
     resolve_ewma_state_path,
@@ -106,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.bars_only and args.relabel:
         raise SystemExit("--relabel cannot be combined with --bars-only")
 
-    month_cache: dict[tuple[int, int], pd.DataFrame] = {}
+    month_cache: dict[tuple[int, int], dict[date, pd.DataFrame]] = {}
     rows: list[dict] = []
     for day in daterange(start, end):
         bars_path = out_dir / f"{config.symbol}_{day}_bars.csv"
@@ -175,16 +177,21 @@ def main(argv: list[str] | None = None) -> int:
                     "n_labels": int(len(labeled)),
                     "y_meta_rate": None if labeled.empty else float(labeled["y_meta"].mean()),
                     "require_strong_imbalance": config.require_strong_imbalance,
+                    "pt": config.pt,
+                    "sl": config.sl,
+                    "vertical_bars": config.vertical_bars,
                     "relabeled": True,
                     "bars_only": False,
                     "split": config.split_for_day(day),
+                    "feature_medians": _feature_medians(labeled),
                     "touch_types": None
                     if labeled.empty
                     else labeled["touch_type"].value_counts().to_dict(),
                 }
             )
-            (out_dir / f"{config.symbol}_{day}_summary.json").write_text(
-                json.dumps(summary, indent=2, default=str)
+            atomic_write_text(
+                out_dir / f"{config.symbol}_{day}_summary.json",
+                json.dumps(summary, indent=2, default=str),
             )
             print(
                 json.dumps(
@@ -249,15 +256,16 @@ def main(argv: list[str] | None = None) -> int:
         if not args.bars_only:
             events.to_csv(out_dir / f"{config.symbol}_{day}_events.csv", index=False)
             labeled.to_csv(out_dir / f"{config.symbol}_{day}_labels.csv", index=False)
-        ewma_path.write_text(json.dumps(asdict(state), indent=2))
+        atomic_write_text(ewma_path, json.dumps(asdict(state), indent=2))
         summary = _summarize(bars, events, labeled, splits, config, day, ticks, prior, state)
         summary["n_ticks"] = int(len(ticks))
         summary["ewma_state_loaded_from"] = None if state_path is None else str(state_path)
         summary["ewma_continued"] = initial_state is not None
         summary["split"] = config.split_for_day(day)
         summary["bars_only"] = bool(args.bars_only)
-        (out_dir / f"{config.symbol}_{day}_summary.json").write_text(
-            json.dumps(summary, indent=2, default=str)
+        atomic_write_text(
+            out_dir / f"{config.symbol}_{day}_summary.json",
+            json.dumps(summary, indent=2, default=str),
         )
         print(
             json.dumps(

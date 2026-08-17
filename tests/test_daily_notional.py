@@ -26,9 +26,11 @@ def test_resolve_ewma_state_defaults_to_previous_day(tmp_path):
     from src.pipeline import resolve_ewma_state_path
 
     prev = tmp_path / "BTCUSDT_2024-01-15_ewma_state.json"
-    prev.write_text("{}")
+    prev.write_text('{"expected_ticks": 1}')
     path = resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 16))
     assert path == prev
+    stub = tmp_path / "BTCUSDT_2024-01-16_ewma_state.json"
+    stub.write_text("{}")
     assert resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 17)) is None
 
 

@@ -1,8 +1,9 @@
 """Bar clocks from aggressor-signed ticks.
 
 Default ``bar_type='dollar'`` closes on cumulative quote vs T$.
-``bar_type='dollar_imbalance'`` is the original control clock (|θ| ≥ E[θ]).
-Both still record θ / E[θ] from the dollar-imbalance formula.
+Recorded strength scale is |θ| / that bar's quote (no E[T]).
+``bar_type='dollar_imbalance'`` is the original control clock (|θ| ≥ E[θ]),
+where E[θ] = E[T] × |2b-1| × E[size].
 """
 
 from __future__ import annotations
@@ -295,8 +296,10 @@ def build_dollar_bars(
 ) -> tuple[pd.DataFrame, EwmaState]:
     """Sample bars when cumulative quote notional hits T$ (dollar clock).
 
-    θ and E[θ] are still the dollar-imbalance formula, but they do not close
-    the bar. T$ is seeded by D = prior-year mean daily quote / divisor.
+    Recorded ``threshold`` is |2b-1| × that bar's quote, not AFML E[θ].
+    T$ is seeded by D = prior-year mean daily quote / divisor.
+    E[T] is kept in EWMA state for file compatibility but is not updated
+    and does not set max_ticks or strength.
     """
     d_seed = float(seed.expected_imbalance) if seed is not None else float("nan")
     empty_state = EwmaState(
@@ -347,21 +350,15 @@ def build_dollar_bars(
     size_sum = 0.0
     rows: list[list[object]] = []
 
-    def afml_theta() -> float:
-        frac = abs(2.0 * b - 1.0)
-        frac = _clip_imbalance_frac(frac, config) if frac > 0 else config.min_abs_2p1
-        size = expected_size if np.isfinite(expected_size) else 1.0
-        return expected_ticks * frac * size
+    def e_theta_now() -> float:
+        return abs(2.0 * b - 1.0) * max(cum_quote, 0.0)
 
     def dollar_threshold_now() -> float:
         if not warmed:
             return float("inf")
         if np.isfinite(expected_dollar):
             return float(expected_dollar)
-        return afml_theta()
-
-    def e_theta_now() -> float:
-        return float(afml_theta())
+        return max(cum_quote, 1e-12)
 
     for i in range(len(dollar_flow)):
         theta += dollar_flow[i]
@@ -370,10 +367,7 @@ def build_dollar_bars(
         buy_ticks += int(arrays.side[i] > 0)
         size_sum += abs_dollar[i]
 
-        max_ticks = min(
-            config.max_ticks,
-            max(int(expected_ticks * config.max_ticks_mult), init_t),
-        )
+        max_ticks = int(config.max_ticks)
         t_dollar = dollar_threshold_now()
         if not warmed:
             close_reason = "warmup" if n_ticks >= init_t else None
@@ -408,11 +402,6 @@ def build_dollar_bars(
             if not np.isfinite(expected_dollar):
                 expected_dollar = float(cum_quote)
         elif close_reason != "max_ticks":
-            expected_ticks = _ewma_update(expected_ticks, float(n_ticks), alpha)
-            expected_ticks = min(
-                max(expected_ticks, init_t * config.expected_ticks_min_mult),
-                init_t * config.expected_ticks_max_mult,
-            )
             expected_size = mean_size if np.isnan(expected_size) else _ewma_update(expected_size, mean_size, alpha)
             b = _ewma_update(b, float(buy_frac), alpha)
             expected_dollar = (
@@ -423,8 +412,8 @@ def build_dollar_bars(
             if seed is not None:
                 expected_dollar = _clip_expected_imbalance(expected_dollar, seed, config)
             expected_imbalance = _ewma_update(
-                expected_imbalance if np.isfinite(expected_imbalance) else afml_theta(),
-                afml_theta(),
+                expected_imbalance if np.isfinite(expected_imbalance) else e_theta,
+                e_theta,
                 alpha,
             )
         warmed = True

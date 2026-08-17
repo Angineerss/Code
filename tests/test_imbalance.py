@@ -186,9 +186,50 @@ def test_dollar_clock_differs_from_imbalance_control():
     assert "imbalance" not in set(d_u["close_reason"])
     assert (d_u["close_reason"] == "dollar").any()
     assert set(i_u["close_reason"]).issubset({"imbalance", "max_ticks"})
-    # Treatment can close on T$ while |θ| is still below E[θ]; control waits for θ.
-    weak_dollar = d_u.loc[d_u["signed_flow"].abs() < d_u["threshold"].abs()]
-    assert not weak_dollar.empty
+    # Treatment can close on T$ even when flow is not one-sided; control waits for θ.
+    mixed_dollar = d_u.loc[d_u["signed_flow"].abs() < d_u["quote_volume"] * 0.5]
+    assert not mixed_dollar.empty
     strong_imb = i_u.loc[i_u["close_reason"] == "imbalance"]
     assert not strong_imb.empty
     assert (strong_imb["signed_flow"].abs() + 1e-9 >= strong_imb["threshold"].abs()).all()
+
+
+def test_dollar_bar_threshold_is_frac_times_quote_not_afml():
+    ticks = make_ticks(n=80, buy_prob=1.0, qty=1.0)
+    config = tight_config(bar_type="dollar", initial_expected_ticks=20, max_ticks=40)
+    state = EwmaState(
+        expected_ticks=20.0,
+        b=0.7,
+        expected_size=100.0,
+        expected_imbalance=float("nan"),
+        expected_dollar=80.0,
+    )
+    bars, out_state = build_dollar_bars(
+        ticks,
+        config,
+        seed=ImbalanceSeed(expected_imbalance=80.0),
+        initial_state=state,
+    )
+    first = bars.iloc[0]
+    expected = abs(2.0 * 0.7 - 1.0) * float(first["quote_volume"])
+    assert abs(float(first["threshold"]) - expected) < 1e-9
+    afml = 20.0 * abs(2.0 * 0.7 - 1.0) * 100.0
+    assert abs(float(first["threshold"]) - afml) > 1.0
+    assert out_state.expected_ticks == 20.0
+
+
+def test_control_dollar_imbalance_threshold_is_afml_theta():
+    ticks = make_ticks(n=80, buy_prob=1.0, qty=1.0)
+    config = tight_config(bar_type="dollar_imbalance", initial_expected_ticks=20, max_ticks=25)
+    state = EwmaState(
+        expected_ticks=20.0,
+        b=0.7,
+        expected_size=100.0,
+        expected_imbalance=float("nan"),
+    )
+    bars, _ = build_imbalance_bars(ticks, config, initial_state=state)
+    first = bars.iloc[0]
+    frac = abs(2.0 * 0.7 - 1.0)
+    frac = min(max(frac, config.min_abs_2p1), config.max_abs_2p1)
+    afml = 20.0 * frac * 100.0
+    assert abs(float(first["threshold"]) - afml) < 1e-9

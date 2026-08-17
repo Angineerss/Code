@@ -39,7 +39,8 @@ class PipelineConfig:
     #   (seed D = prior-year daily mean / 650). Primary is a separate formula.
     # Control (dollar_imbalance): close when |θ| ≥ E[θ]. Clock and primary
     #   share the same imbalance rule — keep as contrast, not the default.
-    # Primary (both): θ = signed dollar flow, E[θ] = E[T] |2b-1| E[size].
+    # Primary: θ = signed dollar flow. Treatment strength = |θ| / bar quote
+    # (no E[T]). Control E[θ] = E[T] |2b-1| E[size] still closes those bars.
     bar_type: BarType = "dollar"
     # E[θ]_0 = mean(prior 1y daily quote notional) / divisor. Then EWMA-update.
     imbalance_divisor: int = 650
@@ -48,11 +49,13 @@ class PipelineConfig:
     initial_expected_ticks: int = 20_000  # init_T; ~50-100 bars/day on liquid BTC
     init_b: float = 0.5  # P[buy] seed; |2b-1| starts at 0
     session: SessionType = "research"
+    # Used only by imbalance-bar clocks (control) so E[θ] cannot collapse to 0.
+    # Dollar bars do not clip |2b-1|; they do not close on E[θ].
     min_abs_2p1: float = 0.05
     max_abs_2p1: float = 0.15
-    max_ticks: int = 50_000  # hard cap on ticks per bar
-    max_ticks_mult: float = 2.5  # 50,000 / 20,000; still clipped by max_ticks
-    expected_ticks_min_mult: float = 0.5
+    max_ticks: int = 50_000  # dollar path uses this as-is; control also hard-caps here
+    max_ticks_mult: float = 2.5  # control clocks only: min(max_ticks, E[T]×2.5)
+    expected_ticks_min_mult: float = 0.5  # control E[T] clip; dollar does not EWMA E[T]
     expected_ticks_max_mult: float = 2.0
     # On dollar bars this band clips T$, not E[θ]. On dollar_imbalance it clips E[θ].
     expected_imbalance_min_mult: float = 0.5
@@ -70,19 +73,19 @@ class PipelineConfig:
     require_strong_imbalance: bool = False
 
     # --- triple barrier / meta label ---
-    # Operating point (not CPCV-min): 1σ died on the next bar; 3σ needed ~24
-    # bars to complete. pt=sl=2σ with τ=30 lets the path finish without the
-    # 1σ same-bar noise. See results/pt_sl_tau_cpcv_*.json.
-    pt: float = 2.0
-    sl: float = 2.0
-    vertical_bars: int = 30
+    # Operating point: 1σ walls, vertical τ=20. Purge/embargo follow τ.
+    pt: float = 1.0
+    sl: float = 1.0
+    vertical_bars: int = 20
     barrier_vol_span: int = 50
     simultaneous_touch_y: int = 0
     timeout_y: int = 0
 
     # --- models / validation ---
     # Treatment: sample on a dollar clock (T$), bet sign(θ) on every bar.
-    # |θ|/E[θ] is a meta feature — primary does not drop weak bars.
+    # Hypothesis: a strong dollar imbalance (|θ| large vs that bar's quote)
+    # favors that side.
+    # Strength is a meta feature — primary does not drop weak bars.
     # Control: dollar_imbalance bars already close on |θ| ≥ E[θ]; primary is
     # the same sign(θ) — clock and direction overlap on purpose.
     primary_type: PrimaryType = "rule_bar_flow_sign"
@@ -91,7 +94,6 @@ class PipelineConfig:
     # Meta features: imbalance strength + bar-construction context. No CUSUM.
     meta_features: tuple[str, ...] = (
         "flow_strength",
-        "tick_rel",
         "sigma",
     )
     meta_model: str = "random_forest"
@@ -102,7 +104,7 @@ class PipelineConfig:
     n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
     n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
     # Boundary policy A (locked): Purge + Embargo = 1τ each.
-    # None → resolved_*_bars() follows vertical_bars (τ=30 → 30 bars).
+    # None → resolved_*_bars() follows vertical_bars (τ=20 → 20 bars).
     purge_bars: int | None = None
     embargo_bars: int | None = None
     # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).
