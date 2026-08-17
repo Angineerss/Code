@@ -1,4 +1,9 @@
-"""Run dollar-imbalance bars (optionally → CUSUM/labels) over a UTC date range."""
+"""Run dollar bars (optionally → events/labels) over a UTC date range.
+
+Default ``--bar-type dollar`` is the treatment clock. Pass
+``dollar_imbalance`` for the original control sampler. Do not mix the two
+in the same ``--out-dir`` (EWMA / T$ vs E[θ] scales differ).
+"""
 
 from __future__ import annotations
 
@@ -44,9 +49,15 @@ def main(argv: list[str] | None = None) -> int:
         choices=("rule_bar_flow_sign", "rule_cusum_sign"),
     )
     parser.add_argument(
+        "--bar-type",
+        default=config.bar_type,
+        choices=("dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        help="dollar = treatment clock. dollar_imbalance = original control sampler.",
+    )
+    parser.add_argument(
         "--bars-only",
         action="store_true",
-        help="Build dollar imbalance bars + EWMA only (skip CUSUM/labels)",
+        help="Build bars + EWMA only (skip events/labels)",
     )
     parser.add_argument(
         "--skip-existing",
@@ -65,7 +76,11 @@ def main(argv: list[str] | None = None) -> int:
     if end < start:
         raise SystemExit("--end must be on or after --start")
 
-    config = PipelineConfig(symbol=args.symbol.upper(), primary_type=args.primary)
+    config = PipelineConfig(
+        symbol=args.symbol.upper(),
+        primary_type=args.primary,
+        bar_type=args.bar_type,
+    )
     if not args.allow_oos:
         try:
             config.assert_learning_range(start, end)
@@ -194,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         # Progress manifest so a long run is inspectable mid-flight.
         progress = {
             "symbol": config.symbol,
+            "bar_type": config.bar_type,
             "start": start.isoformat(),
             "end": end.isoformat(),
             "bars_only": bool(args.bars_only),
@@ -207,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = {
         "symbol": config.symbol,
+        "bar_type": config.bar_type,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "archive_dir": str(archive_dir),

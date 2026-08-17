@@ -1,12 +1,13 @@
 """Meta-label features at event time (no look-ahead).
 
 Hypothesis strength:
-- flow_strength: |θ| / E[θ] on the event bar
-- cusum_excess_ratio: |S| / h at the CUSUM crossing (before reset)
+- flow_strength: |θ| / E[θ] from the dollar-imbalance formula on the dollar bar
 
-Context (locked subset):
+Context:
 - tick_rel: tick_count / E[T] at bar close (E[T] before EWMA update)
 - sigma: same EWM bar-log-return vol used for barriers
+
+Price-run confirmation (|S|/h) is not a meta feature.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from .barriers import barrier_volatility
 
 META_FEATURE_NAMES = (
     "flow_strength",
-    "cusum_excess_ratio",
     "tick_rel",
     "sigma",
 )
@@ -42,11 +42,6 @@ def attach_meta_features(
     with np.errstate(divide="ignore", invalid="ignore"):
         strength = np.abs(flow) / np.maximum(np.abs(bar_thr), 1e-12)
     out["flow_strength"] = strength
-
-    if "cusum_excess_ratio" in out.columns:
-        out["cusum_excess_ratio"] = pd.to_numeric(out["cusum_excess_ratio"], errors="coerce")
-    else:
-        out["cusum_excess_ratio"] = np.nan
 
     ticks = out["bar_id"].map(by_id["tick_count"]).to_numpy(dtype=float)
     if "expected_ticks" in by_id.columns:

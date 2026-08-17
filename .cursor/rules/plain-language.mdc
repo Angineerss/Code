@@ -1,0 +1,18 @@
+---
+description: Explain research choices in plain Korean; avoid stats jargon
+alwaysApply: true
+---
+
+# Plain language
+
+When talking to the user, explain pipeline choices in everyday Korean. Do not lean on stats or finance jargon.
+
+- Do not say iid, random walk, Brownian, √t, stationarity, heteroskedasticity, or similar unless the user used that word first.
+- If a formula needs a picture, say it in words: "한 바의 흔들림이 σ라면, 20바 동안의 흔들림은 대략 그 네다섯 배" — not "σ√20 under iid returns".
+- Keep code identifiers (`pt`, `sl`, `τ`, CPCV) as-is. Translate the *idea*, not the flag names.
+- Prefer: 벽이 좁다, 20바 안에 먼저 닫힌다, 시간이 남는다. Avoid: 확산, 마팅게일, 분포 가정.
+
+```text
+❌ 바 로그수익이 iid면 20바 이동은 σ√20 ≈ 4.5σ
+✅ 한 바가 보통 움직이는 크기가 1이라면, 20바를 그냥 두면 대략 4~5 정도까지 갈 수 있다
+```

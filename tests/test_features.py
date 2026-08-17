@@ -1,5 +1,6 @@
 import pandas as pd
 
+from src.config import PipelineConfig
 from src.features import META_FEATURE_NAMES, attach_meta_features, meta_feature_matrix
 from src.pipeline import run_from_ticks
 from tests.helpers import make_ticks, tight_config
@@ -8,11 +9,17 @@ from tests.helpers import make_ticks, tight_config
 def test_meta_feature_names_locked_set():
     assert META_FEATURE_NAMES == (
         "flow_strength",
-        "cusum_excess_ratio",
         "tick_rel",
         "sigma",
     )
     assert "tick_count" not in META_FEATURE_NAMES
+    assert "cusum_excess_ratio" not in META_FEATURE_NAMES
+    assert PipelineConfig().meta_features == META_FEATURE_NAMES
+    assert PipelineConfig().event_mode == "every_bar"
+    assert PipelineConfig().bar_type == "dollar"
+    assert PipelineConfig().require_strong_imbalance is True
+    assert PipelineConfig().require_cusum_flow_agree is False
+    assert PipelineConfig(bar_type="dollar_imbalance").bar_type == "dollar_imbalance"
 
 
 def test_attach_meta_features_tick_rel_over_expected_ticks():
@@ -30,7 +37,6 @@ def test_attach_meta_features_tick_rel_over_expected_ticks():
     events = pd.DataFrame(
         {
             "bar_id": [0, 1],
-            "cusum_excess_ratio": [1.2, 1.5],
             "side": [1, -1],
         }
     )
@@ -39,6 +45,7 @@ def test_attach_meta_features_tick_rel_over_expected_ticks():
     assert abs(out.loc[0, "tick_rel"] - 0.5) < 1e-9
     assert abs(out.loc[1, "tick_rel"] - 2.0) < 1e-9
     assert list(meta_feature_matrix(out).columns) == list(META_FEATURE_NAMES)
+    assert "cusum_excess_ratio" not in out.columns
 
 
 def test_pipeline_labels_include_locked_meta_features():
@@ -50,6 +57,6 @@ def test_pipeline_labels_include_locked_meta_features():
         assert name in labeled.columns
         assert name in events.columns
     assert (labeled["flow_strength"] > 0).all()
-    assert (labeled["cusum_excess_ratio"] >= 1.0).all()
     assert (labeled["tick_rel"] > 0).all()
     assert labeled["sigma"].notna().all()
+    assert "cusum_excess_ratio" not in labeled.columns

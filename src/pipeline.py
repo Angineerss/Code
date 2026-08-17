@@ -1,9 +1,10 @@
-"""Run Binance tick → imbalance bars → CUSUM → triple-barrier labels."""
+"""Run Binance tick → dollar bars (control: dollar-imbalance) → labels."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -44,6 +45,7 @@ def load_ewma_state(path: Path) -> EwmaState:
         b=float(payload["b"]),
         expected_size=float(payload["expected_size"]),
         expected_imbalance=float(payload.get("expected_imbalance", float("nan"))),
+        expected_dollar=float(payload.get("expected_dollar", float("nan"))),
     )
 
 
@@ -120,6 +122,7 @@ def _summarize(
         "cusum_k": config.cusum_k,
         "primary": config.primary_type,
         "require_cusum_flow_agree": config.require_cusum_flow_agree,
+        "require_strong_imbalance": config.require_strong_imbalance,
         "meta_features": list(config.meta_features),
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
@@ -140,6 +143,7 @@ def _summarize(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    defaults = PipelineConfig()
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--date", default=None, help="UTC day YYYY-MM-DD; default = latest published")
     parser.add_argument("--data-dir", default="data")
@@ -150,15 +154,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--bar-type",
-        default="dollar_imbalance",
-        choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        default=defaults.bar_type,
+        choices=("dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        help="dollar = treatment clock (T$). dollar_imbalance = original control sampler.",
     )
-    parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
+    parser.add_argument(
+        "--event-mode",
+        default=defaults.event_mode,
+        choices=("cusum", "every_bar"),
+    )
     parser.add_argument(
         "--primary",
         default="rule_bar_flow_sign",
         choices=("rule_bar_flow_sign", "rule_cusum_sign"),
-        help="Primary side after the event filter. Default = bar signed-flow sign, not CUSUM direction.",
+        help="Primary side. Default = sign of bar dollar imbalance (θ), not CUSUM.",
     )
     parser.add_argument("--session", default="research", choices=("warmup", "research"))
     parser.add_argument(
@@ -198,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
 
     prior = None
     seed = None
-    if config.bar_type == "dollar_imbalance":
+    if config.bar_type in ("dollar", "dollar_imbalance"):
         prior = prior_year_notional(
             config.symbol,
             day,

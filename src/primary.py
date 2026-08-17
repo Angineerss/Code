@@ -9,11 +9,10 @@ from .config import PipelineConfig, PrimaryType
 
 
 def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    """Attach primary ``side`` to CUSUM (or every-bar) event times.
+    """Attach primary ``side`` from the dollar-imbalance formula, then gates.
 
-    CUSUM decides *when*; primary decides *which way* (default = bar flow sign).
-    With ``require_cusum_flow_agree``, keep only events where ``cusum_side == side``
-    so taker imbalance and the price-run direction align (locked hypothesis).
+    Default primary is ``sign(signed_flow)`` = sign(θ) on the dollar bar.
+    ``require_strong_imbalance`` keeps bars with |θ| ≥ E[θ].
     """
     if events.empty:
         out = events.copy()
@@ -26,10 +25,25 @@ def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConf
     out = out.loc[out["side"] != 0]
     if config.require_cusum_flow_agree and "cusum_side" in out.columns:
         cusum = pd.to_numeric(out["cusum_side"], errors="coerce")
-        # every_bar mode has no CUSUM side — skip the agree gate.
         if cusum.notna().any():
             out = out.loc[cusum.notna() & (cusum == out["side"])]
-    return out.reset_index(drop=True)
+    return filter_strong_imbalance(bars, out, config).reset_index(drop=True)
+
+
+def filter_strong_imbalance(
+    bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConfig
+) -> pd.DataFrame:
+    """Keep events where |θ| ≥ E[θ] (dollar-imbalance formula), excluding warmup."""
+    if events.empty or not config.require_strong_imbalance:
+        return events
+    by_id = bars.set_index("bar_id")
+    flow = pd.to_numeric(events["bar_id"].map(by_id["signed_flow"]), errors="coerce")
+    thr = pd.to_numeric(events["bar_id"].map(by_id["threshold"]), errors="coerce")
+    keep = flow.abs() >= thr.abs().clip(lower=1e-12)
+    if "close_reason" in by_id.columns:
+        reason = events["bar_id"].map(by_id["close_reason"])
+        keep = keep & (reason != "warmup")
+    return events.loc[keep]
 
 
 def _primary_side(bars: pd.DataFrame, events: pd.DataFrame, primary_type: PrimaryType) -> np.ndarray:

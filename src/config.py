@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
-BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
+BarType = Literal["dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 SessionType = Literal["warmup", "research"]
@@ -34,8 +34,13 @@ class PipelineConfig:
     oos_start: date = date(2025, 1, 1)
     oos_end: date = date(2026, 8, 13)
 
-    # --- imbalance bars ---
-    bar_type: BarType = "dollar_imbalance"
+    # --- information structure (clock) vs primary (direction) ---
+    # Treatment (default dollar): close when cumulative quote hits T$
+    #   (seed D = prior-year daily mean / 650). Primary is a separate formula.
+    # Control (dollar_imbalance): close when |θ| ≥ E[θ]. Clock and primary
+    #   share the same imbalance rule — keep as contrast, not the default.
+    # Primary (both): θ = signed dollar flow, E[θ] = E[T] |2b-1| E[size].
+    bar_type: BarType = "dollar"
     # E[θ]_0 = mean(prior 1y daily quote notional) / divisor. Then EWMA-update.
     imbalance_divisor: int = 650
     imbalance_lookback_days: int = 365
@@ -49,39 +54,42 @@ class PipelineConfig:
     max_ticks_mult: float = 2.5  # 50,000 / 20,000; still clipped by max_ticks
     expected_ticks_min_mult: float = 0.5
     expected_ticks_max_mult: float = 2.0
-    # Keep E[θ] from drifting too far from the prior-year scale D.
+    # On dollar bars this band clips T$, not E[θ]. On dollar_imbalance it clips E[θ].
     expected_imbalance_min_mult: float = 0.5
     expected_imbalance_max_mult: float = 2.0
 
     # --- event filter (before the primary; not a trading signal) ---
-    event_mode: EventMode = "cusum"
+    # Information structure = dollar-bar closes. CUSUM is contrast-only.
+    event_mode: EventMode = "every_bar"
     cusum_mode: CusumMode = "ewm_std"
     cusum_vol_span: int = 50
     cusum_k: float = 1.0  # h = 1 * EWM std of bar log-returns (AFML vol-scaled threshold)
     cusum_absolute_h: float = 0.001
+    # Meta/event gate: keep dollar bars where |θ| ≥ E[θ] (imbalance formula).
+    require_strong_imbalance: bool = True
 
     # --- triple barrier / meta label ---
-    pt: float = 1.0
-    sl: float = 1.0
-    # Vertical barrier τ selected on IS via CPCV (results/vertical_tau_cpcv_*.json).
-    # 2024H1 CPCV → τ=20 (min mean logloss). Locked.
-    vertical_bars: int = 20
+    # Operating point (not CPCV-min): 1σ died on the next bar; 3σ needed ~24
+    # bars to complete. pt=sl=2σ with τ=30 lets the path finish without the
+    # 1σ same-bar noise. See results/pt_sl_tau_cpcv_*.json.
+    pt: float = 2.0
+    sl: float = 2.0
+    vertical_bars: int = 30
     barrier_vol_span: int = 50
     simultaneous_touch_y: int = 0
     timeout_y: int = 0
 
     # --- models / validation ---
-    # Hypothesis (locked): betting is advantageous when taker dollar-flow imbalance
-    # and a one-sided price run align (cusum_side == primary side).
-    # CUSUM = timing filter; primary = flow direction; agreement = joint event gate.
+    # Treatment hypothesis: sample on a dollar clock (T$), then bet sign(θ)
+    # when |θ| ≥ E[θ]. Primary does not close the bar.
+    # Control: dollar_imbalance bars already close on |θ| ≥ E[θ]; primary is
+    # the same sign(θ) — clock and direction overlap on purpose.
     primary_type: PrimaryType = "rule_bar_flow_sign"
-    require_cusum_flow_agree: bool = True
+    require_cusum_flow_agree: bool = False
     primary_objective: str = "high_recall"
-    # Meta features (locked): hypothesis strength + selected context.
-    # Alignment itself is not a feature — it is enforced by require_cusum_flow_agree.
+    # Meta features: imbalance strength + bar-construction context. No CUSUM.
     meta_features: tuple[str, ...] = (
         "flow_strength",
-        "cusum_excess_ratio",
         "tick_rel",
         "sigma",
     )
@@ -93,7 +101,7 @@ class PipelineConfig:
     n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
     n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
     # Boundary policy A (locked): Purge + Embargo = 1τ each.
-    # None → resolved_*_bars() follows vertical_bars (τ=20 → 20 bars).
+    # None → resolved_*_bars() follows vertical_bars (τ=30 → 30 bars).
     purge_bars: int | None = None
     embargo_bars: int | None = None
     # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).

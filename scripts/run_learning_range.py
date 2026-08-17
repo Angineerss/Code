@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Structure dollar-imbalance bars over the learning range only.
+"""Structure bars over the learning range only.
+
+Default clock is dollar bars (treatment). Pass ``--bar-type dollar_imbalance``
+for the original control sampler. Use a separate ``--out-dir`` (the default
+path includes bar_type) so EWMA files are never mixed.
 
 Split rules (locked):
 - Warmup ``archive_start..warmup_end``: bars + EWMA only (D seed / state).
-  No CUSUM, primary, or meta labels.
-- IS ``universe_start..is_end``: bars → CUSUM → primary → triple-barrier →
-  meta features. Cross-validation inside IS is **CPCV only**.
+  No events, primary, or meta labels.
+- IS ``universe_start..is_end``: bars → events → primary (sign of θ) →
+  triple-barrier → meta features. CV inside IS is **CPCV only**.
 - OOS ``oos_start..oos_end``: never touched here (no ``--allow-oos``).
 
 This is a thin orchestrator over ``scripts/run_range.py``.
@@ -39,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--out-dir",
         default=None,
-        help="Default: data/runs/learning_{archive_start}_{is_end}",
+        help="Default: data/runs/learning_{bar_type}_{archive_start}_{is_end}",
     )
     p.add_argument("--skip-existing", action="store_true")
     p.add_argument(
@@ -57,11 +61,17 @@ def main(argv: list[str] | None = None) -> int:
         default=config.primary_type,
         choices=("rule_bar_flow_sign", "rule_cusum_sign"),
     )
+    p.add_argument(
+        "--bar-type",
+        default=config.bar_type,
+        choices=("dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        help="dollar = treatment. dollar_imbalance = original control sampler.",
+    )
     args = p.parse_args(argv)
 
     out_dir = Path(
         args.out_dir
-        or f"data/runs/learning_{config.archive_start}_{config.is_end}"
+        or f"data/runs/learning_{args.bar_type}_{config.archive_start}_{config.is_end}"
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +80,14 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = {
         "symbol": args.symbol.upper(),
+        "bar_type": args.bar_type,
+        "clock_role": (
+            "treatment"
+            if args.bar_type == "dollar"
+            else "control"
+            if args.bar_type == "dollar_imbalance"
+            else "other"
+        ),
         "out_dir": str(out_dir),
         "warmup": [config.archive_start.isoformat(), config.warmup_end.isoformat()],
         "is": [config.universe_start.isoformat(), config.is_end.isoformat()],
@@ -103,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         str(out_dir),
         "--primary",
         args.primary,
+        "--bar-type",
+        args.bar_type,
     ]
     if args.skip_existing:
         common.append("--skip-existing")

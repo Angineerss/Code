@@ -80,10 +80,12 @@ def test_primary_side_is_flow_not_cusum_direction():
     events = select_events(
         bars,
         tight_config(
+            event_mode="cusum",
             cusum_mode="absolute",
             cusum_absolute_h=0.01,
             primary_type="rule_bar_flow_sign",
             require_cusum_flow_agree=False,
+            require_strong_imbalance=False,
         ),
     )
     assert not events.empty
@@ -97,10 +99,12 @@ def test_require_cusum_flow_agree_drops_mismatches():
     disagree = select_events(
         bars,
         tight_config(
+            event_mode="cusum",
             cusum_mode="absolute",
             cusum_absolute_h=0.01,
             primary_type="rule_bar_flow_sign",
             require_cusum_flow_agree=True,
+            require_strong_imbalance=False,
         ),
     )
     assert disagree.empty
@@ -109,10 +113,12 @@ def test_require_cusum_flow_agree_drops_mismatches():
     agree = select_events(
         bars,
         tight_config(
+            event_mode="cusum",
             cusum_mode="absolute",
             cusum_absolute_h=0.01,
             primary_type="rule_bar_flow_sign",
             require_cusum_flow_agree=True,
+            require_strong_imbalance=False,
         ),
     )
     assert not agree.empty
@@ -150,17 +156,84 @@ def test_pipeline_on_synthetic_ticks():
 def test_every_bar_events_follow_order_flow():
     ticks = make_ticks(n=200, buy_prob=1.0)
     bars, events, labeled, splits, _state = run_from_ticks(
-        ticks, tight_config(event_mode="every_bar", bar_type="tick_imbalance")
+        ticks,
+        tight_config(
+            event_mode="every_bar",
+            bar_type="tick_imbalance",
+            require_strong_imbalance=False,
+        ),
     )
     usable = bars.loc[bars["close_reason"] != "warmup"]
     assert len(events) == len(usable)
     assert set(events["side"].unique()) == {1}
 
 
+def test_require_strong_imbalance_keeps_theta_hits_only():
+    ts = pd.date_range("2024-01-15", periods=4, freq="1min", tz="UTC")
+    bars = pd.DataFrame(
+        {
+            "bar_id": [0, 1, 2, 3],
+            "end_ts": ts,
+            "signed_flow": [1.2, 0.3, -1.5, 2.0],
+            "threshold": [1.0, 1.0, 1.0, 1.0],
+            "close_reason": ["dollar", "dollar", "max_ticks", "warmup"],
+            "tick_count": [10, 10, 40, 20],
+            "expected_ticks": [20.0, 20.0, 20.0, 20.0],
+            "log_ret": [0.01, 0.0, -0.01, 0.0],
+            "close": [100.0, 100.1, 99.9, 100.0],
+        }
+    )
+    events = select_events(
+        bars,
+        tight_config(
+            event_mode="every_bar",
+            require_strong_imbalance=True,
+            require_cusum_flow_agree=False,
+        ),
+    )
+    assert set(events["bar_id"].tolist()) == {0, 2}
+    assert list(events["side"]) == [1, -1]
+
+
+def test_default_pipeline_uses_dollar_clock():
+    ticks = make_ticks(n=400, buy_prob=0.9)
+    bars, events, labeled, _splits, _state = run_from_ticks(
+        ticks,
+        tight_config(event_mode="every_bar", require_strong_imbalance=False),
+    )
+    usable = bars.loc[bars["close_reason"] != "warmup"]
+    assert not usable.empty
+    assert set(usable["close_reason"]).issubset({"dollar", "max_ticks"})
+    assert (usable["close_reason"] == "dollar").any()
+    assert not events.empty
+
+
+def test_control_dollar_imbalance_pipeline_still_runs():
+    ticks = make_ticks(n=250, buy_prob=1.0)
+    bars, events, labeled, _splits, _state = run_from_ticks(
+        ticks,
+        tight_config(
+            bar_type="dollar_imbalance",
+            event_mode="every_bar",
+            require_strong_imbalance=True,
+        ),
+    )
+    usable = bars.loc[bars["close_reason"] != "warmup"]
+    assert (usable["close_reason"] == "imbalance").any()
+    assert not events.empty
+    assert not labeled.empty
+
+
 def test_research_session_labels_after_warmup():
     ticks = make_ticks(n=200, buy_prob=1.0)
     bars, events, labeled, splits, _state = run_from_ticks(
-        ticks, tight_config(session="research", bar_type="tick_imbalance", event_mode="every_bar")
+        ticks,
+        tight_config(
+            session="research",
+            bar_type="tick_imbalance",
+            event_mode="every_bar",
+            require_strong_imbalance=False,
+        ),
     )
     assert (bars["close_reason"] == "warmup").any()
     assert not labeled.empty

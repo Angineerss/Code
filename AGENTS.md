@@ -2,9 +2,11 @@
 
 ## Cursor Cloud specific instructions
 
-This is a pure-Python research pipeline (Binance aggTrades → dollar-imbalance bars →
-CUSUM events → triple-barrier meta labels → CPCV). There is no server, web UI, or
-database; the "application" is the CLI in `src/` plus the scripts in `scripts/`.
+This is a pure-Python research pipeline (Binance aggTrades → dollar bars →
+triple-barrier meta labels → CPCV). Default clock is `bar_type=dollar`;
+`dollar_imbalance` is the original sampler kept as a control. There is no
+server, web UI, or database; the "application" is the CLI in `src/` plus
+the scripts in `scripts/`.
 
 ### Environment / tooling
 

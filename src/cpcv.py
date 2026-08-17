@@ -17,7 +17,7 @@ def _contiguous_groups(n: int, n_groups: int) -> list[np.ndarray]:
 
 
 def seconds_per_imbalance_bar(labeled: pd.DataFrame) -> float:
-    """Median seconds per imbalance bar from labeled paths (or event spacing)."""
+    """Median seconds per bar from labeled paths (or event spacing)."""
     if labeled.empty:
         return 60.0
     t0 = pd.to_datetime(labeled["event_ts"], utc=True)
