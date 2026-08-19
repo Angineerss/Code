@@ -1,4 +1,9 @@
-"""Single source of truth for the labeling pipeline decisions."""
+"""Single source of truth for the labeling pipeline decisions.
+
+Comment tags:
+- ``[선정]`` — reason given in chat
+- ``[임시값]`` — placeholder until a reason is written
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
-BarType = Literal["tick_imbalance", "volume_imbalance", "dollar_imbalance"]
+BarType = Literal["dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"]
 CusumMode = Literal["ewm_std", "absolute"]
 EventMode = Literal["cusum", "every_bar"]
 SessionType = Literal["warmup", "research"]
@@ -17,89 +22,137 @@ PrimaryType = Literal["rule_bar_flow_sign", "rule_cusum_sign"]
 @dataclass(frozen=True)
 class PipelineConfig:
     # --- universe ---
+    # [선정] BTCUSDT: long history of live ticks is easy to get.
     symbol: str = "BTCUSDT"
+    # [임시값]
     market: str = "spot"
+    # [선정] aggTrades: same-price prints are bundled; enough to recover aggressor side.
     data_type: str = "aggTrades"
+    # [임시값]
     timestamp_storage: str = "UTC"
-    session_filter: str | None = None  # crypto trades 24/7
-    # Full Vision aggTrades on disk (BTCUSDT listing → last locked published day).
+    # [임시값] crypto trades 24/7
+    session_filter: str | None = None
+    # [임시값] Vision listing → last locked published day.
     archive_start: date = date(2017, 8, 17)
-    # First year after listing: build D lookback + EWMA only (no IS/OOS labels).
+    # [선정] one-year warmup calendar kept so IS:OOS dates (~8:2) do not move.
+    # Listing day still bootstraps daily_T$ (no yesterday). Lookback=1.
     warmup_end: date = date(2018, 8, 16)
-    # Research IS starts the day after warmup (first day with a full 365d prior for D).
+    # [선정] IS calendar; 8:2 vs OOS is the usual holdout mix.
     universe_start: date = date(2018, 8, 17)
     is_end: date = date(2024, 12, 31)
-    # Untouched holdout after IS. Learning/structuring must never use OOS
-    # unless an explicit final-evaluation allow_oos flag is set.
+    # [선정] OOS unused in learning. Backtest after lock only (allow_oos).
+    # Purge + embargo keep OOS out of learning samples. Train vs CV inside IS
+    # is CPCV; hyperparameters and meta features are chosen on the CV paths.
     oos_start: date = date(2025, 1, 1)
     oos_end: date = date(2026, 8, 13)
 
-    # --- imbalance bars ---
-    bar_type: BarType = "dollar_imbalance"
-    # E[θ]_0 = mean(prior 1y daily quote notional) / divisor. Then EWMA-update.
+    # --- information structure (clock) vs primary (direction) ---
+    # [선정] Time bars do not represent trading activity (AFML). Dollar bars
+    # close when cumulative quote hits T$, so sampling follows dollar volume.
+    # Control (dollar_imbalance): close when |θ| ≥ E[θ] — contrast, not default.
+    bar_type: BarType = "dollar"
+    # [선정] Method B on IS months (100/200/400/650/1000). 400 vs 650 were
+    # the less extreme pair; 650 is the faster of the two (~2.5 min bars vs
+    # ~3.6). daily_T$ (spoken: 어제 조각) D = yesterday quote / 650.
+    # T$ clip [0.5D, 2D] [선정]: keep bars increasing when today >> yesterday.
+    # results/divisor_bar_screen.json
     imbalance_divisor: int = 650
-    imbalance_lookback_days: int = 365
+    # [선정] Yesterday only. daily_T$ = 어제 조각; year-to-year notional jumps too much for 365d.
+    imbalance_lookback_days: int = 1
+    # [임시값]
     imbalance_ewma_span: int = 50
-    initial_expected_ticks: int = 20_000  # init_T; ~50-100 bars/day on liquid BTC
-    init_b: float = 0.5  # P[buy] seed; |2b-1| starts at 0
+    # [선정] retune after bars so the first warmup bar is not far from typical tick_count.
+    # [임시값] 20_000 until that pass.
+    initial_expected_ticks: int = 20_000  # init_T
+    # [선정] Control clock (dollar_imbalance) uses the AFML expected-imbalance
+    # close: E[θ_T] ≈ E[T] × |2b-1| × E[size]. Tick-only imbalance is the
+    # special case E[size]=1, i.e. E[θ_T] ≈ E[T] × |2b-1|. Treatment dollar
+    # bars do not close or set strength from this.
+    # [선정] init_b=0.5: b is P[buy]; start even so |2b-1| starts at 0.
+    # Dollar path still EWMA-updates b for files / recorded threshold.
+    init_b: float = 0.5
+    # [임시값]
     session: SessionType = "research"
+    # [선정] control clocks only. Clip |2b-1| into [0.05, 0.15]. At b=0.5,
+    # |2b-1|=0 so E[θ]=0 and the bar would close on the first tick. Floor
+    # keeps expected imbalance alive. Ceiling keeps E[θ] from growing so
+    # large that |θ| never hits it.
     min_abs_2p1: float = 0.05
     max_abs_2p1: float = 0.15
-    max_ticks: int = 50_000  # hard cap on ticks per bar
-    max_ticks_mult: float = 2.5  # 50,000 / 20,000; still clipped by max_ticks
+    # [선정] force-close if a bar runs too many ticks; retune after bars exist.
+    # [임시값] 50_000 until that pass. Dollar path uses this as-is.
+    max_ticks: int = 50_000
+    # [선정] control only: if |θ| never hits E[θ], force-close after a
+    # multiple of E[T]: min(max_ticks, max(E[T]×mult, init_T)).
+    # [임시값] 2.5 until that pass.
+    max_ticks_mult: float = 2.5
+    # [임시값] control E[T] clip; dollar does not EWMA E[T]
     expected_ticks_min_mult: float = 0.5
     expected_ticks_max_mult: float = 2.0
-    # Keep E[θ] from drifting too far from the prior-year scale D.
+    # [선정] dollar T$: keep clip so a hot day vs yesterday makes more bars
+    # (unclipped EWMA would grow T$ and bar count would stay flatter).
+    # Long-run notional growth is already in yesterday's piece (lookback=1).
+    # Same numbers clip control E[θ].
     expected_imbalance_min_mult: float = 0.5
     expected_imbalance_max_mult: float = 2.0
 
     # --- event filter (before the primary; not a trading signal) ---
-    event_mode: EventMode = "cusum"
+    # [선정] every bar close is an event so the primary can keep recall high.
+    event_mode: EventMode = "every_bar"
+    # [임시값] contrast-only CUSUM
     cusum_mode: CusumMode = "ewm_std"
     cusum_vol_span: int = 50
-    cusum_k: float = 1.0  # h = 1 * EWM std of bar log-returns (AFML vol-scaled threshold)
+    cusum_k: float = 1.0
     cusum_absolute_h: float = 0.001
+    # [선정] AFML triple-barrier primary should maximize recall; do not drop weak |θ|.
+    require_strong_imbalance: bool = False
 
     # --- triple barrier / meta label ---
+    # [임시값]
     pt: float = 1.0
     sl: float = 1.0
-    # Vertical barrier τ selected on IS via CPCV (results/vertical_tau_cpcv_*.json).
-    # 2024H1 CPCV → τ=20 (min mean logloss). Locked.
     vertical_bars: int = 20
+    # [임시값] one σ: same EWM series sizes pt/sl walls and is the meta
+    # feature sigma (#2 · #23). One length; two uses.
     barrier_vol_span: int = 50
+    # [선정] y_meta=1 only when a later bar hits TP and not SL on that same
+    # bar. Intra-bar order is unknown, so same-bar both walls → 0.
     simultaneous_touch_y: int = 0
     timeout_y: int = 0
+    # [선정] path uses bar high/low (not close-only) to see if that bar
+    # touched a wall. Same-bar order is unknown; see y rule above.
 
     # --- models / validation ---
-    # Hypothesis (locked): betting is advantageous when taker dollar-flow imbalance
-    # and a one-sided price run align (cusum_side == primary side).
-    # CUSUM = timing filter; primary = flow direction; agreement = joint event gate.
+    # [선정] direction = sign(θ) = sign(signed_flow) on the dollar bar.
     primary_type: PrimaryType = "rule_bar_flow_sign"
-    require_cusum_flow_agree: bool = True
+    # [임시값]
+    require_cusum_flow_agree: bool = False
     primary_objective: str = "high_recall"
-    # Meta features (locked): hypothesis strength + selected context.
-    # Alignment itself is not a feature — it is enforced by require_cusum_flow_agree.
+    # [선정] strength = |θ| / that bar's quote — same dollar scale as the clock.
+    # [임시값] sigma (barrier vol as context).
     meta_features: tuple[str, ...] = (
         "flow_strength",
-        "cusum_excess_ratio",
-        "tick_rel",
         "sigma",
     )
+    # [임시값] RF size not locked; 200 / depth 6 / leaf 10 is a placeholder.
     meta_model: str = "random_forest"
-    # All model/feature/threshold choices happen inside IS via CPCV only.
-    # No extra IS holdout year and never tune on OOS.
+    # [선정] choices inside IS via CPCV only. OOS unused in learning (backtest after lock).
     selection_method: str = "cpcv_only"
     cv_method: str = "cpcv"
-    n_cpcv_groups: int = 6  # ~1y contiguous groups over ~6.4y IS
-    n_cpcv_test_groups: int = 2  # C(6,2)=15 paths; train = remaining purged groups
-    # Boundary policy A (locked): Purge + Embargo = 1τ each.
-    # None → resolved_*_bars() follows vertical_bars (τ=20 → 20 bars).
+    # [선정] AFML recommends logloss for scoring predicted probabilities.
+    # The score is a CPCV result, not a bar knob.
+    selection_metric: str = "logloss"
+    # [선정] AFML book example: 6 groups, 2 test → C(6,2)=15 paths.
+    n_cpcv_groups: int = 6
+    n_cpcv_test_groups: int = 2  # C(6,2)=15
+    # [선정] use purge + embargo so OOS does not leak into learning.
+    # [임시값] length = 1τ (follows vertical_bars).
     purge_bars: int | None = None
     embargo_bars: int | None = None
-    # IS↔OOS boundary hygiene for meta-learning samples (AFML purge + embargo).
+    # [선정] IS↔OOS boundary hygiene
     boundary_purge: bool = True
     boundary_embargo: bool = True
-    # Vertical barrier τ candidate grid for IS CPCV selection.
+    # [임시값]
     vertical_tau_candidates: tuple[int, ...] = (10, 20, 40, 80)
 
     extra: dict = field(default_factory=dict)

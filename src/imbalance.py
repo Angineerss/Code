@@ -1,4 +1,13 @@
-"""AFML imbalance bars from aggressor-signed ticks."""
+"""Bar clocks from aggressor-signed ticks.
+
+Default ``bar_type='dollar'`` closes on cumulative quote vs T$.
+Recorded strength scale is |θ| / that bar's quote (no E[T]).
+``bar_type='dollar_imbalance'`` is the original control clock (|θ| ≥ E[θ]).
+AFML [선정]: ``E[θ_T] ≈ E[T] × |2b-1| × E[size]``. Tick imbalance is
+``E[size]=1``, i.e. ``E[θ_T] ≈ E[T] × |2b-1|``. ``|2b-1|`` is clipped to
+``[0.05, 0.15]`` [선정] so E[θ] does not collapse at ``b=0.5``. Force-close
+after a multiple of E[T] [선정] if |θ| never hits E[θ]; the 2.5 is [임시값].
+"""
 
 from __future__ import annotations
 
@@ -26,12 +35,13 @@ BAR_COLUMNS = [
     "threshold",
     "close_reason",
     "expected_ticks",
+    "dollar_threshold",
 ]
 
 
 @dataclass(frozen=True)
 class ImbalanceSeed:
-    """Prior-year D = mean(daily quote notional) / 650; E[θ] then EWMA-updates."""
+    """daily_T$ (어제 조각): D = yesterday quote / divisor (650 [선정], lookback=1); then T$ / E[θ] EWMA."""
 
     expected_imbalance: float
     expected_size: float | None = None
@@ -43,6 +53,7 @@ class EwmaState:
     b: float
     expected_size: float
     expected_imbalance: float
+    expected_dollar: float = float("nan")
 
 
 @dataclass(frozen=True)
@@ -63,7 +74,7 @@ def _signed_flow(price: np.ndarray, qty: np.ndarray, side: np.ndarray, bar_type:
         return side.astype(np.float64)
     if bar_type == "volume_imbalance":
         return side.astype(np.float64) * qty
-    if bar_type == "dollar_imbalance":
+    if bar_type in ("dollar_imbalance", "dollar"):
         return side.astype(np.float64) * qty * price
     raise ValueError(f"Unknown bar_type: {bar_type}")
 
@@ -110,6 +121,7 @@ def _bar_row(
     threshold: float,
     reason: str,
     expected_ticks: float,
+    dollar_threshold: float | None = None,
 ) -> list[object]:
     sl = slice(start, end)
     px = arrays.price[sl]
@@ -134,6 +146,7 @@ def _bar_row(
         threshold,
         reason,
         float(expected_ticks),
+        float("nan") if dollar_threshold is None else float(dollar_threshold),
     ]
 
 
@@ -161,6 +174,7 @@ def build_imbalance_bars(
         b=float(config.init_b),
         expected_size=float("nan"),
         expected_imbalance=float("nan") if seed is None else float(seed.expected_imbalance),
+        expected_dollar=float("nan") if seed is None else float(seed.expected_imbalance),
     )
     if ticks.empty:
         return _empty_bars(), empty_state
@@ -197,6 +211,7 @@ def build_imbalance_bars(
     rows: list[list[object]] = []
 
     def afml_theta() -> float:
+        # E[θ_T] ≈ E[T] × |2b-1| × E[size]  (AFML; [선정] control close)
         frac = abs(2.0 * b - 1.0)
         frac = _clip_imbalance_frac(frac, config) if frac > 0 else config.min_abs_2p1
         size = expected_size if np.isfinite(expected_size) else 1.0
@@ -270,6 +285,155 @@ def build_imbalance_bars(
         b=float(b),
         expected_size=float(expected_size) if np.isfinite(expected_size) else float("nan"),
         expected_imbalance=float(expected_imbalance) if np.isfinite(expected_imbalance) else float("nan"),
+        expected_dollar=float(getattr(initial_state, "expected_dollar", float("nan")))
+        if initial_state is not None
+        else (float(seed.expected_imbalance) if seed is not None else float("nan")),
+    )
+    return _finalize_bars(rows), state
+
+
+def build_dollar_bars(
+    ticks: pd.DataFrame,
+    config: PipelineConfig,
+    seed: ImbalanceSeed | None = None,
+    initial_state: EwmaState | None = None,
+) -> tuple[pd.DataFrame, EwmaState]:
+    """Sample bars when cumulative quote notional hits T$ (dollar clock).
+
+    Recorded ``threshold`` is |2b-1| × that bar's quote, not AFML E[θ].
+    T$ is seeded by daily_T$ (어제 조각; D = yesterday quote / divisor, 650 [선정]).
+    E[T] is kept in EWMA state for file compatibility but is not updated
+    and does not set max_ticks or strength.
+    """
+    d_seed = float(seed.expected_imbalance) if seed is not None else float("nan")
+    empty_state = EwmaState(
+        expected_ticks=float(config.initial_expected_ticks),
+        b=float(config.init_b),
+        expected_size=float("nan"),
+        expected_imbalance=float("nan"),
+        expected_dollar=d_seed,
+    )
+    if ticks.empty:
+        return _empty_bars(), empty_state
+
+    arrays = _tick_arrays(ticks)
+    dollar_flow = arrays.side.astype(np.float64) * arrays.quote
+    abs_dollar = np.abs(dollar_flow)
+    alpha = 2.0 / (config.imbalance_ewma_span + 1.0)
+
+    init_t = int(config.initial_expected_ticks)
+    expected_ticks = float(init_t)
+    b = float(config.init_b)
+    expected_size = (
+        float(seed.expected_size)
+        if seed is not None and seed.expected_size is not None
+        else np.nan
+    )
+    expected_imbalance = float("nan")
+    expected_dollar = d_seed
+    warmed = False
+    if initial_state is not None and np.isfinite(initial_state.expected_size):
+        expected_ticks = float(initial_state.expected_ticks)
+        b = float(initial_state.b)
+        expected_size = float(initial_state.expected_size)
+        if np.isfinite(initial_state.expected_dollar):
+            expected_dollar = float(initial_state.expected_dollar)
+            if np.isfinite(initial_state.expected_imbalance):
+                expected_imbalance = float(initial_state.expected_imbalance)
+        elif np.isfinite(d_seed):
+            expected_dollar = d_seed
+        if seed is not None and np.isfinite(expected_dollar):
+            expected_dollar = _clip_expected_imbalance(expected_dollar, seed, config)
+        warmed = True
+
+    theta = 0.0
+    cum_quote = 0.0
+    start = 0
+    n_ticks = 0
+    buy_ticks = 0
+    size_sum = 0.0
+    rows: list[list[object]] = []
+
+    def e_theta_now() -> float:
+        return abs(2.0 * b - 1.0) * max(cum_quote, 0.0)
+
+    def dollar_threshold_now() -> float:
+        if not warmed:
+            return float("inf")
+        if np.isfinite(expected_dollar):
+            return float(expected_dollar)
+        return max(cum_quote, 1e-12)
+
+    for i in range(len(dollar_flow)):
+        theta += dollar_flow[i]
+        cum_quote += float(arrays.quote[i])
+        n_ticks += 1
+        buy_ticks += int(arrays.side[i] > 0)
+        size_sum += abs_dollar[i]
+
+        max_ticks = int(config.max_ticks)
+        t_dollar = dollar_threshold_now()
+        if not warmed:
+            close_reason = "warmup" if n_ticks >= init_t else None
+        elif cum_quote >= max(t_dollar, 1e-12):
+            close_reason = "dollar"
+        elif n_ticks >= max_ticks:
+            close_reason = "max_ticks"
+        else:
+            close_reason = None
+        if close_reason is None:
+            continue
+
+        mean_size = size_sum / n_ticks
+        buy_frac = buy_ticks / n_ticks
+        e_theta = e_theta_now() if warmed else float(n_ticks)
+        rows.append(
+            _bar_row(
+                arrays,
+                start,
+                i + 1,
+                n_ticks,
+                buy_ticks,
+                theta,
+                e_theta,
+                close_reason,
+                expected_ticks,
+                dollar_threshold=t_dollar if warmed else float("nan"),
+            )
+        )
+        if close_reason == "warmup":
+            expected_size = mean_size if np.isnan(expected_size) else expected_size
+            if not np.isfinite(expected_dollar):
+                expected_dollar = float(cum_quote)
+        elif close_reason != "max_ticks":
+            expected_size = mean_size if np.isnan(expected_size) else _ewma_update(expected_size, mean_size, alpha)
+            b = _ewma_update(b, float(buy_frac), alpha)
+            expected_dollar = (
+                float(cum_quote)
+                if not np.isfinite(expected_dollar)
+                else _ewma_update(expected_dollar, float(cum_quote), alpha)
+            )
+            if seed is not None:
+                expected_dollar = _clip_expected_imbalance(expected_dollar, seed, config)
+            expected_imbalance = _ewma_update(
+                expected_imbalance if np.isfinite(expected_imbalance) else e_theta,
+                e_theta,
+                alpha,
+            )
+        warmed = True
+        theta = 0.0
+        cum_quote = 0.0
+        n_ticks = 0
+        buy_ticks = 0
+        size_sum = 0.0
+        start = i + 1
+
+    state = EwmaState(
+        expected_ticks=float(expected_ticks),
+        b=float(b),
+        expected_size=float(expected_size) if np.isfinite(expected_size) else float("nan"),
+        expected_imbalance=float(expected_imbalance) if np.isfinite(expected_imbalance) else float("nan"),
+        expected_dollar=float(expected_dollar) if np.isfinite(expected_dollar) else float("nan"),
     )
     return _finalize_bars(rows), state
 
@@ -280,4 +444,6 @@ def build_bars(
     seed: ImbalanceSeed | None = None,
     initial_state: EwmaState | None = None,
 ) -> tuple[pd.DataFrame, EwmaState]:
+    if config.bar_type == "dollar":
+        return build_dollar_bars(ticks, config, seed=seed, initial_state=initial_state)
     return build_imbalance_bars(ticks, config, seed=seed, initial_state=initial_state)

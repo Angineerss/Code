@@ -1,9 +1,10 @@
-"""Run Binance tick → imbalance bars → CUSUM → triple-barrier labels."""
+"""Run Binance tick → dollar bars (control: dollar-imbalance) → labels."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -28,22 +29,43 @@ def run_from_ticks(
     if config.session == "warmup":
         empty = bars.iloc[0:0]
         return bars, empty, empty, [], state
+    events, labeled, splits = label_from_bars(bars, config)
+    return bars, events, labeled, splits, state
+
+
+def label_from_bars(bars, config: PipelineConfig):
+    """Events + triple-barrier labels from existing bars (no tick rebuild)."""
+    empty = bars.iloc[0:0]
+    if bars.empty:
+        return empty, empty, []
     usable = bars.loc[bars["close_reason"] != "warmup"].reset_index(drop=True)
     events = select_events(usable, config)
     labeled = apply_triple_barrier(usable, events, config)
     labeled = attach_meta_features(usable, labeled, vol_span=config.barrier_vol_span)
     events = attach_meta_features(usable, events, vol_span=config.barrier_vol_span)
     splits = list(cpcv_splits(labeled, config))
-    return bars, events, labeled, splits, state
+    return events, labeled, splits
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write via a sibling temp file so readers never see a truncated JSON."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
 
 
 def load_ewma_state(path: Path) -> EwmaState:
-    payload = json.loads(path.read_text())
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError(f"EWMA state file is empty: {path}")
+    payload = json.loads(text)
     return EwmaState(
         expected_ticks=float(payload["expected_ticks"]),
         b=float(payload["b"]),
         expected_size=float(payload["expected_size"]),
         expected_imbalance=float(payload.get("expected_imbalance", float("nan"))),
+        expected_dollar=float(payload.get("expected_dollar", float("nan"))),
     )
 
 
@@ -55,7 +77,9 @@ def resolve_ewma_state_path(dest: Path, symbol: str, day: date, explicit: str | 
             raise FileNotFoundError(f"EWMA state not found: {path}")
         return path
     candidate = dest / f"{symbol}_{day - timedelta(days=1)}_ewma_state.json"
-    return candidate if candidate.exists() else None
+    if candidate.exists() and candidate.stat().st_size > 2:
+        return candidate
+    return None
 
 
 def _median(series) -> float | None:
@@ -120,6 +144,7 @@ def _summarize(
         "cusum_k": config.cusum_k,
         "primary": config.primary_type,
         "require_cusum_flow_agree": config.require_cusum_flow_agree,
+        "require_strong_imbalance": config.require_strong_imbalance,
         "meta_features": list(config.meta_features),
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
@@ -140,6 +165,7 @@ def _summarize(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    defaults = PipelineConfig()
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--date", default=None, help="UTC day YYYY-MM-DD; default = latest published")
     parser.add_argument("--data-dir", default="data")
@@ -150,15 +176,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--bar-type",
-        default="dollar_imbalance",
-        choices=("tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        default=defaults.bar_type,
+        choices=("dollar", "tick_imbalance", "volume_imbalance", "dollar_imbalance"),
+        help="dollar = treatment clock (T$). dollar_imbalance = original control sampler.",
     )
-    parser.add_argument("--event-mode", default="cusum", choices=("cusum", "every_bar"))
+    parser.add_argument(
+        "--event-mode",
+        default=defaults.event_mode,
+        choices=("cusum", "every_bar"),
+    )
     parser.add_argument(
         "--primary",
         default="rule_bar_flow_sign",
         choices=("rule_bar_flow_sign", "rule_cusum_sign"),
-        help="Primary side after the event filter. Default = bar signed-flow sign, not CUSUM direction.",
+        help="Primary side. Default = sign of bar dollar imbalance (θ), not CUSUM.",
     )
     parser.add_argument("--session", default="research", choices=("warmup", "research"))
     parser.add_argument(
@@ -198,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
 
     prior = None
     seed = None
-    if config.bar_type == "dollar_imbalance":
+    if config.bar_type in ("dollar", "dollar_imbalance"):
         prior = prior_year_notional(
             config.symbol,
             day,
@@ -217,8 +248,9 @@ def main(argv: list[str] | None = None) -> int:
 
     dest.mkdir(parents=True, exist_ok=True)
     bars.to_csv(dest / f"{config.symbol}_{day}_bars.csv", index=False)
-    (dest / f"{config.symbol}_{day}_ewma_state.json").write_text(
-        json.dumps(asdict(state), indent=2)
+    atomic_write_text(
+        dest / f"{config.symbol}_{day}_ewma_state.json",
+        json.dumps(asdict(state), indent=2),
     )
     if config.session != "warmup":
         labeled.to_csv(dest / f"{config.symbol}_{day}_labels.csv", index=False)
@@ -228,8 +260,9 @@ def main(argv: list[str] | None = None) -> int:
     summary["ewma_state_loaded_from"] = None if state_path is None else str(state_path)
     summary["ewma_continued"] = initial_state is not None
     print(json.dumps(summary, indent=2, default=str))
-    (dest / f"{config.symbol}_{day}_summary.json").write_text(
-        json.dumps(summary, indent=2, default=str)
+    atomic_write_text(
+        dest / f"{config.symbol}_{day}_summary.json",
+        json.dumps(summary, indent=2, default=str),
     )
     return 0
 

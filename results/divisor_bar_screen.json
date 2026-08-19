@@ -1,0 +1,250 @@
+{
+  "method": "B_bar_shape",
+  "bar_type": "dollar",
+  "lookback_days": 1,
+  "divisors": [
+    100,
+    200,
+    400,
+    650,
+    1000
+  ],
+  "windows": [
+    [
+      "2019-01-01",
+      "2019-01-31"
+    ],
+    [
+      "2020-03-01",
+      "2020-03-31"
+    ],
+    [
+      "2021-05-01",
+      "2021-05-31"
+    ],
+    [
+      "2023-06-01",
+      "2023-06-30"
+    ],
+    [
+      "2024-03-01",
+      "2024-03-31"
+    ]
+  ],
+  "burn_in_days": 7,
+  "n_scored_days": 154,
+  "oos_touched": false,
+  "note": "Screening only. Not a lock. Same ticks, one pass per day, separate EWMA per divisor per window. No labels / CPCV / OOS.",
+  "by_divisor": [
+    {
+      "divisor": 100,
+      "n_scored_days": 154,
+      "median_bars_per_day": 83.5,
+      "duration": {
+        "p10": 146.26670000000001,
+        "p50": 680.8735,
+        "p90": 1797.7918000000004,
+        "p99": 3219.6865600000006,
+        "share_shorter_than_5s": 0.0004565018912221208,
+        "share_longer_than_4h": 0.0,
+        "n": 15334
+      },
+      "flow_strength": {
+        "p10": 0.01742309935973771,
+        "p50": 0.09389183163722123,
+        "p90": 0.26110490077831133,
+        "p99": 0.49591696535440466,
+        "share_near_0": 0.284531107343159,
+        "share_near_1": 0.0,
+        "n": 15334
+      },
+      "clip": {
+        "share_at_0_5d": 0.05656781029915359,
+        "share_at_2d": 0.1038961038961039,
+        "median_t_over_d": 1.192923003694233
+      },
+      "share_max_ticks": 0.001158182066867476,
+      "quiet_loud": {
+        "n_days": 154,
+        "n_quiet_days": 31,
+        "n_loud_days": 31,
+        "quiet_median_bars": 63.0,
+        "loud_median_bars": 119.0,
+        "loud_over_quiet_bars": 1.8888888888888888,
+        "loud_over_quiet_quote": 50.99408742270979,
+        "median_bars": 83.5,
+        "cv_bars": 0.5423156204392668,
+        "cv_quote": 1.0457061622241017
+      },
+      "mean_D": 21963123.254179068
+    },
+    {
+      "divisor": 200,
+      "n_scored_days": 154,
+      "median_bars_per_day": 157.0,
+      "duration": {
+        "p10": 75.3536,
+        "p50": 364.564,
+        "p90": 989.7837999999999,
+        "p99": 1767.0941200000004,
+        "share_shorter_than_5s": 0.0025765009000105884,
+        "share_longer_than_4h": 0.0,
+        "n": 28333
+      },
+      "flow_strength": {
+        "p10": 0.019953062716209297,
+        "p50": 0.1135854764071091,
+        "p90": 0.315069165753372,
+        "p99": 0.6013466300842215,
+        "share_near_0": 0.24081459781879788,
+        "share_near_1": 0.00038823986164543113,
+        "n": 28333
+      },
+      "clip": {
+        "share_at_0_5d": 0.03896103896103896,
+        "share_at_2d": 0.13636363636363635,
+        "median_t_over_d": 1.2800865688755936
+      },
+      "share_max_ticks": 0.0,
+      "quiet_loud": {
+        "n_days": 154,
+        "n_quiet_days": 31,
+        "n_loud_days": 31,
+        "quiet_median_bars": 123.0,
+        "loud_median_bars": 227.0,
+        "loud_over_quiet_bars": 1.8455284552845528,
+        "loud_over_quiet_quote": 50.99408742270979,
+        "median_bars": 157.0,
+        "cv_bars": 0.512359506113446,
+        "cv_quote": 1.0457061622241017
+      },
+      "mean_D": 10981561.627089534
+    },
+    {
+      "divisor": 400,
+      "n_scored_days": 154,
+      "median_bars_per_day": 274.5,
+      "duration": {
+        "p10": 40.9519,
+        "p50": 213.393,
+        "p90": 591.6352000000003,
+        "p99": 1048.738469999999,
+        "share_shorter_than_5s": 0.009777058164154938,
+        "share_longer_than_4h": 0.0,
+        "n": 48174
+      },
+      "flow_strength": {
+        "p10": 0.023992627168592667,
+        "p50": 0.13330170713663747,
+        "p90": 0.3761830739105528,
+        "p99": 0.7145050976045915,
+        "share_near_0": 0.20506912442396313,
+        "share_near_1": 0.0012662432017270728,
+        "n": 48174
+      },
+      "clip": {
+        "share_at_0_5d": 0.013486896857203754,
+        "share_at_2d": 0.24275286894589565,
+        "median_t_over_d": 1.482417097786425
+      },
+      "share_max_ticks": 0.0,
+      "quiet_loud": {
+        "n_days": 154,
+        "n_quiet_days": 31,
+        "n_loud_days": 31,
+        "quiet_median_bars": 231.0,
+        "loud_median_bars": 418.0,
+        "loud_over_quiet_bars": 1.8095238095238095,
+        "loud_over_quiet_quote": 50.99408742270979,
+        "median_bars": 274.5,
+        "cv_bars": 0.4824647802551115,
+        "cv_quote": 1.0457061622241017
+      },
+      "mean_D": 5490780.813544767
+    },
+    {
+      "divisor": 650,
+      "n_scored_days": 154,
+      "median_bars_per_day": 388.5,
+      "duration": {
+        "p10": 26.670499999999997,
+        "p50": 150.5775,
+        "p90": 413.68600000000004,
+        "p99": 744.5461500000046,
+        "share_shorter_than_5s": 0.018936867441927907,
+        "share_longer_than_4h": 0.0,
+        "n": 68966
+      },
+      "flow_strength": {
+        "p10": 0.027155419770866066,
+        "p50": 0.15078364502385272,
+        "p90": 0.43195594355549616,
+        "p99": 0.8187561771316314,
+        "share_near_0": 0.182510222428443,
+        "share_near_1": 0.003726473914682597,
+        "n": 68966
+      },
+      "clip": {
+        "share_at_0_5d": 0.001705544797200064,
+        "share_at_2d": 0.3823924667231521,
+        "median_t_over_d": 1.7848983562575507
+      },
+      "share_max_ticks": 0.0,
+      "quiet_loud": {
+        "n_days": 154,
+        "n_quiet_days": 31,
+        "n_loud_days": 31,
+        "quiet_median_bars": 352.0,
+        "loud_median_bars": 544.0,
+        "loud_over_quiet_bars": 1.5454545454545454,
+        "loud_over_quiet_quote": 50.99408742270979,
+        "median_bars": 388.5,
+        "cv_bars": 0.45248065717722796,
+        "cv_quote": 1.0457061622241017
+      },
+      "mean_D": 3378942.039104472
+    },
+    {
+      "divisor": 1000,
+      "n_scored_days": 154,
+      "median_bars_per_day": 552.5,
+      "duration": {
+        "p10": 16.964800000000004,
+        "p50": 106.222,
+        "p90": 297.5722000000002,
+        "p99": 539.5849399999984,
+        "share_shorter_than_5s": 0.033176040558819585,
+        "share_longer_than_4h": 0.0,
+        "n": 96847
+      },
+      "flow_strength": {
+        "p10": 0.030772023733741004,
+        "p50": 0.16982004323000893,
+        "p90": 0.49385401259266287,
+        "p99": 0.913454443973216,
+        "share_near_0": 0.16167769781201277,
+        "share_near_1": 0.0074447324129813,
+        "n": 96847
+      },
+      "clip": {
+        "share_at_0_5d": 0.0,
+        "share_at_2d": 0.5339106746498306,
+        "median_t_over_d": 2.0
+      },
+      "share_max_ticks": 0.0,
+      "quiet_loud": {
+        "n_days": 154,
+        "n_quiet_days": 31,
+        "n_loud_days": 31,
+        "quiet_median_bars": 518.0,
+        "loud_median_bars": 754.0,
+        "loud_over_quiet_bars": 1.4555984555984556,
+        "loud_over_quiet_quote": 50.99408742270979,
+        "median_bars": 552.5,
+        "cv_bars": 0.4426384059402427,
+        "cv_quote": 1.0457061622241017
+      },
+      "mean_D": 2196312.325417907
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "method": "B_bar_shape",
+  "bar_type": "dollar",
+  "lookback_days": 1,
+  "divisors": [
+    100,
+    650
+  ],
+  "windows": [
+    [
+      "2019-01-08",
+      "2019-01-09"
+    ]
+  ],
+  "burn_in_days": 1,
+  "n_scored_days": 2,
+  "oos_touched": false,
+  "note": "Screening only. Not a lock. Same ticks, one pass per day, separate EWMA per divisor per window. No labels / CPCV / OOS.",
+  "by_divisor": [
+    {
+      "divisor": 100,
+      "n_scored_days": 2,
+      "median_bars_per_day": 92.5,
+      "duration": {
+        "p10": 210.98300000000003,
+        "p50": 929.465,
+        "p90": 1615.7861999999998,
+        "p99": 2085.90012,
+        "share_shorter_than_5s": 0.010810810810810811,
+        "share_longer_than_4h": 0.0,
+        "n": 185
+      },
+      "flow_strength": {
+        "p10": 0.022931562675218172,
+        "p50": 0.11887254040439359,
+        "p90": 0.3237761839466143,
+        "p99": 0.5837200484501098,
+        "share_near_0": 0.2702702702702703,
+        "share_near_1": 0.005405405405405406,
+        "n": 185
+      },
+      "clip": {
+        "share_at_0_5d": 0.0,
+        "share_at_2d": 0.0,
+        "median_t_over_d": 1.0371275069842334
+      },
+      "share_max_ticks": 0.0,
+      "quiet_loud": {
+        "n_days": 2,
+        "quiet_median_bars": null,
+        "loud_median_bars": null,
+        "loud_over_quiet_bars": null,
+        "loud_over_quiet_quote": null
+      },
+      "mean_D": 1408046.1351761927
+    },
+    {
+      "divisor": 650,
+      "n_scored_days": 2,
+      "median_bars_per_day": 371.5,
+      "duration": {
+        "p10": 25.694200000000002,
+        "p50": 213.71,
+        "p90": 449.40400000000005,
+        "p99": 697.7017000000003,
+        "share_shorter_than_5s": 0.02288021534320323,
+        "share_longer_than_4h": 0.0,
+        "n": 743
+      },
+      "flow_strength": {
+        "p10": 0.033838121490568966,
+        "p50": 0.1838011471306127,
+        "p90": 0.5336815848318208,
+        "p99": 0.9596937339922134,
+        "share_near_0": 0.16285329744279947,
+        "share_near_1": 0.012113055181695828,
+        "n": 743
+      },
+      "clip": {
+        "share_at_0_5d": 0.0,
+        "share_at_2d": 0.016094420600858368,
+        "median_t_over_d": 1.6737831913241696
+      },
+      "share_max_ticks": 0.0,
+      "quiet_loud": {
+        "n_days": 2,
+        "quiet_median_bars": null,
+        "loud_median_bars": null,
+        "loud_over_quiet_bars": null,
+        "loud_over_quiet_quote": null
+      },
+      "mean_D": 216622.4823347989
+    }
+  ]
+}

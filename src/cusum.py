@@ -1,6 +1,9 @@
-"""Symmetric CUSUM event filter on imbalance-bar log prices (AFML).
+"""Dollar-bar closes are the default event times.
 
-CUSUM only selects *when* to consider a bet. Direction comes from the primary model.
+``event_mode='every_bar'`` keeps every close so the primary can maximize recall.
+CUSUM remains available as ``event_mode='cusum'`` (contrast only).
+``bar_type='dollar_imbalance'`` is the original clock (control).
+Direction comes from the primary model (sign of bar θ).
 """
 
 from __future__ import annotations
@@ -33,18 +36,14 @@ def cusum_threshold(log_ret: np.ndarray, config: PipelineConfig) -> np.ndarray:
 
 
 def every_bar_events(bars: pd.DataFrame) -> pd.DataFrame:
-    """Use each imbalance-bar close as an event time (no primary side yet)."""
+    """Use each bar close as an event time (no primary side yet)."""
     if bars.empty:
-        return pd.DataFrame(
-            columns=["bar_id", "event_ts", "threshold", "cusum_side", "cusum_excess_ratio"]
-        )
+        return pd.DataFrame(columns=["bar_id", "event_ts", "threshold"])
     return pd.DataFrame(
         {
             "bar_id": bars["bar_id"].to_numpy(),
             "event_ts": pd.to_datetime(bars["end_ts"], utc=True),
             "threshold": bars["threshold"].to_numpy(dtype=float),
-            "cusum_side": np.full(len(bars), np.nan),
-            "cusum_excess_ratio": np.full(len(bars), np.nan),
         }
     )
 

@@ -3,11 +3,20 @@
 
 Re-labels existing IS events for each τ on a continuous multi-day bar stream,
 applies uniqueness sample weights, and scores RandomForest meta models under
-combinatorial purged CV with purge/embargo = 1τ imbalance bars (policy A).
+combinatorial purged CV with purge/embargo = 1τ bars (policy A).
+
+Mean CPCV logloss is the score we compute to see whether the meta
+P(take-profit first) matched the labels. It is a result, not a bar knob.
+[선정] AFML recommends logloss for scoring predicted probabilities.
 
 Does **not** touch OOS. Requires precomputed daily bars + events under a run
 root (warmup+IS only). File layout matches ``scripts/run_range.py``:
 ``{SYMBOL}_{YYYY-MM-DD}_{bars,events}.csv``.
+
+Scores whatever clock is already in ``--run-root``. Treatment vs control:
+run ``run_learning_range.py`` twice (default dollar, then
+``--bar-type dollar_imbalance``) into separate folders, then point this
+script at each root. Do not mix bar types in one folder.
 """
 
 from __future__ import annotations
@@ -53,15 +62,22 @@ def _day_paths(run_root: Path, symbol: str) -> list[tuple[date, Path, Path]]:
 def load_continuous_is(
     run_root: Path,
     config: PipelineConfig,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    start: date | None = None,
+    end: date | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Concatenate daily bars/events with remapped bar_ids (IS days only)."""
-    config.assert_learning_range(config.universe_start, config.is_end)
+    lo = start or config.universe_start
+    hi = end or config.is_end
+    if lo < config.universe_start or hi > config.is_end:
+        raise SystemExit("τ compare window must stay inside IS (OOS locked)")
+    config.assert_learning_range(lo, hi)
     rows = _day_paths(run_root, config.symbol)
     bar_frames: list[pd.DataFrame] = []
     event_frames: list[pd.DataFrame] = []
+    days: list[date] = []
     offset = 0
     for day, bars_path, events_path in rows:
-        if day < config.universe_start or day > config.is_end:
+        if day < lo or day > hi:
             continue
         bars = pd.read_csv(bars_path)
         events = pd.read_csv(events_path)
@@ -77,6 +93,7 @@ def load_continuous_is(
             events["bar_id"] = events["bar_id"].astype(int) + offset
             event_frames.append(events)
         bar_frames.append(bars)
+        days.append(day)
         offset = int(bars["bar_id"].max()) + 1
     if not bar_frames:
         raise SystemExit(f"No IS bars+events under {run_root}")
@@ -86,7 +103,24 @@ def load_continuous_is(
         if event_frames
         else pd.DataFrame()
     )
-    return bars_all, events_all
+    window = {
+        "first_day": days[0].isoformat(),
+        "last_day": days[-1].isoformat(),
+        "n_days": len(days),
+        "requested_start": lo.isoformat(),
+        "requested_end": hi.isoformat(),
+        "is_full_is": lo == config.universe_start and hi == config.is_end and len(days)
+        == (config.is_end - config.universe_start).days + 1,
+    }
+    return bars_all, events_all, window
+
+
+def _full_horizon_mask(events: pd.DataFrame, bars: pd.DataFrame, tau: int) -> pd.Series:
+    """True when the bar stream still has ``tau`` bars after the event bar."""
+    id_to_pos = {int(b): i for i, b in enumerate(bars["bar_id"].to_numpy())}
+    n = len(bars)
+    pos = events["bar_id"].map(id_to_pos)
+    return (pos + int(tau)) <= (n - 1)
 
 
 def relabel_for_tau(
@@ -94,8 +128,15 @@ def relabel_for_tau(
     bars: pd.DataFrame,
     tau: int,
     config: PipelineConfig,
+    pt: float | None = None,
+    sl: float | None = None,
 ) -> pd.DataFrame:
-    cfg = PipelineConfig(**{**config.__dict__, "vertical_bars": int(tau)})
+    overrides: dict = {**config.__dict__, "vertical_bars": int(tau)}
+    if pt is not None:
+        overrides["pt"] = float(pt)
+    if sl is not None:
+        overrides["sl"] = float(sl)
+    cfg = PipelineConfig(**overrides)
     # Drop prior barrier columns if present; keep event identity + CUSUM fields.
     drop_cols = [
         c
@@ -118,14 +159,25 @@ def relabel_for_tau(
         if c in events.columns
     ]
     base = events.drop(columns=drop_cols)
+    keep = _full_horizon_mask(base, bars, int(tau))
+    n_dropped = int((~keep).sum())
+    base = base.loc[keep].reset_index(drop=True)
     labeled = apply_triple_barrier(bars, base, cfg)
     labeled = attach_meta_features(bars, labeled, vol_span=cfg.barrier_vol_span)
+    labeled.attrs["n_dropped_horizon"] = n_dropped
     return labeled
 
 
 def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
     meta = filter_meta_learning_samples(labeled, config)
-    need = list(META_FEATURE_NAMES) + ["y_meta"]
+    feat_names = [
+        c
+        for c in META_FEATURE_NAMES
+        if c in meta.columns and pd.to_numeric(meta[c], errors="coerce").notna().any()
+    ]
+    need = feat_names + ["y_meta"]
+    if not feat_names:
+        return {"n": int(len(meta)), "error": "no_meta_features"}
     meta = meta.dropna(subset=need).copy()
     if len(meta) < 50:
         return {
@@ -139,7 +191,7 @@ def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
         meta["t1_bar_id"].to_numpy(dtype=int),
     )
     meta["sample_weight"] = sample_weights_from_uniqueness(uniq)
-    X = meta[list(META_FEATURE_NAMES)].to_numpy(dtype=float)
+    X = meta[feat_names].to_numpy(dtype=float)
     y = meta["y_meta"].astype(int).to_numpy()
     w = meta["sample_weight"].to_numpy(dtype=float)
 
@@ -152,6 +204,7 @@ def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
         if len(np.unique(y[tr])) < 2:
             continue
         clf = RandomForestClassifier(
+            # Initial placeholder only; not a locked hyperparameter.
             n_estimators=200,
             max_depth=6,
             min_samples_leaf=10,
@@ -171,6 +224,31 @@ def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
         accs.append(float(accuracy_score(y_te, (full[:, 1] >= 0.5).astype(int))))
         n_paths += 1
 
+    touch = labeled["touch_type"].value_counts().to_dict() if "touch_type" in labeled else {}
+    y_rate = None if labeled.empty or "y_meta" not in labeled else float(labeled["y_meta"].mean())
+    entropy = None
+    if y_rate is not None and 0.0 < y_rate < 1.0:
+        entropy = float(-(y_rate * np.log(y_rate) + (1.0 - y_rate) * np.log(1.0 - y_rate)))
+    held = None
+    if not labeled.empty and {"bar_id", "t1_bar_id"}.issubset(labeled.columns):
+        held = (
+            pd.to_numeric(labeled["t1_bar_id"], errors="coerce")
+            - pd.to_numeric(labeled["bar_id"], errors="coerce")
+        )
+    extras = {
+        "n_labeled": int(len(labeled)),
+        "n_dropped_horizon": int(labeled.attrs.get("n_dropped_horizon", 0)),
+        "y_meta_rate": y_rate,
+        "label_entropy": entropy,
+        "touch_types": {str(k): int(v) for k, v in touch.items()},
+        "timeout_rate": float(touch.get("timeout", 0) / len(labeled)) if len(labeled) else None,
+        "median_bars_to_touch": None if held is None or held.empty else float(held.median()),
+        "p90_bars_to_touch": None if held is None or held.empty else float(held.quantile(0.9)),
+        "vertical_bars": config.vertical_bars,
+        "pt": config.pt,
+        "sl": config.sl,
+        "meta_features": feat_names,
+    }
     if not losses:
         return {
             "n": int(len(meta)),
@@ -178,6 +256,7 @@ def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
             "seconds_per_bar": seconds_per_imbalance_bar(meta),
             "purge_bars": config.resolved_purge_bars(),
             "embargo_bars": config.resolved_embargo_bars(),
+            **extras,
         }
     return {
         "n": int(len(meta)),
@@ -192,6 +271,7 @@ def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
         "embargo_seconds": int(
             seconds_per_imbalance_bar(meta) * config.resolved_embargo_bars()
         ),
+        **extras,
     }
 
 
@@ -205,18 +285,26 @@ def main() -> None:
         default=None,
         help="Vertical barrier candidates (default: config.vertical_tau_candidates)",
     )
+    p.add_argument("--start", default=None, help="IS window start YYYY-MM-DD (inclusive)")
+    p.add_argument("--end", default=None, help="IS window end YYYY-MM-DD (inclusive)")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args()
 
     config = PipelineConfig()
     taus = args.taus or list(config.vertical_tau_candidates)
+    start = date.fromisoformat(args.start) if args.start else None
+    end = date.fromisoformat(args.end) if args.end else None
     print(
-        f"τ CPCV compare | taus={taus} | purge={config.resolved_purge_bars()} bars | "
-        f"embargo={config.resolved_embargo_bars()} bars | IS only",
+        f"τ CPCV compare | taus={taus} | purge/embargo = 1τ bars (policy A) | IS only",
         flush=True,
     )
-    bars, events = load_continuous_is(args.run_root, config)
-    print(f"loaded events={len(events)} bars={len(bars)}", flush=True)
+    bars, events, window = load_continuous_is(args.run_root, config, start=start, end=end)
+    print(
+        f"loaded events={len(events)} bars={len(bars)} "
+        f"days={window['n_days']} {window['first_day']}..{window['last_day']} "
+        f"full_is={window['is_full_is']}",
+        flush=True,
+    )
 
     results: dict[str, dict] = {}
     for tau in taus:
@@ -230,13 +318,28 @@ def main() -> None:
     ranked = [(tau, m) for tau, m in results.items() if "logloss_mean" in m]
     ranked.sort(key=lambda x: x[1]["logloss_mean"])
     summary = {
-        "purge_bars": config.resolved_purge_bars(),
-        "embargo_bars": config.resolved_embargo_bars(),
+        "window": f"{window['first_day']}..{window['last_day']}",
+        "n_days": window["n_days"],
+        "is_full_is": window["is_full_is"],
+        "split": "is",
+        "oos_touched": False,
+        "selection_metric": "mean_cpcv_logloss",
+        "boundary_policy": "A_purge_embargo_1tau",
+        "n_cpcv_groups": config.n_cpcv_groups,
+        "n_cpcv_test_groups": config.n_cpcv_test_groups,
+        "cpcv_paths": config.cpcv_path_count(),
         "n_bars": int(len(bars)),
         "n_events": int(len(events)),
         "results": results,
         "best_tau": int(ranked[0][0]) if ranked else None,
-        "note": "Selected by mean CPCV logloss on IS only; OOS untouched.",
+        "note": (
+            "Selected by mean CPCV logloss on available IS events only; OOS untouched. "
+            "Each τ uses purge/embargo = 1τ. Events without a full τ horizon at the "
+            "end of the loaded bar stream are dropped. Partial IS is not a production lock."
+            if not window["is_full_is"]
+            else "Selected by mean CPCV logloss on IS only; OOS untouched. "
+            "Each τ uses purge/embargo = 1τ."
+        ),
     }
     text = json.dumps(summary, indent=2)
     print("\n=== summary ===", flush=True)

@@ -126,13 +126,23 @@ def _decode_timestamp_ms(raw: np.ndarray) -> np.ndarray:
     return values
 
 
-def parse_aggtrades_csv(raw: bytes | io.BufferedReader) -> pd.DataFrame:
-    df = pd.read_csv(
-        raw,
-        header=None,
-        names=AGGTRADE_COLUMNS[:7],
-        usecols=range(7),
+_CSV_CHUNKSIZE = 1_000_000
+
+
+def _empty_ticks() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "trade_id": pd.Series(dtype="int64"),
+            "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
+            "price": pd.Series(dtype="float64"),
+            "qty": pd.Series(dtype="float64"),
+            "side": pd.Series(dtype="int8"),
+            "quote_qty": pd.Series(dtype="float64"),
+        }
     )
+
+
+def _finalize_aggtrades(df: pd.DataFrame) -> pd.DataFrame:
     ts_ms = _decode_timestamp_ms(df["timestamp"].to_numpy())
     maker = df["is_buyer_maker"].astype(str).str.lower().isin(["true", "1"])
     side = np.where(maker, -1, 1)
@@ -146,8 +156,43 @@ def parse_aggtrades_csv(raw: bytes | io.BufferedReader) -> pd.DataFrame:
         }
     )
     out["quote_qty"] = out["price"] * out["qty"]
-    out = out.dropna(subset=["price", "qty", "timestamp"]).sort_values("timestamp")
-    return out.reset_index(drop=True)
+    return out.dropna(subset=["price", "qty", "timestamp"])
+
+
+def _aggtrades_reader(raw: bytes | io.BufferedReader):
+    fh = io.BytesIO(raw) if isinstance(raw, (bytes, bytearray)) else raw
+    return pd.read_csv(
+        fh,
+        header=None,
+        names=AGGTRADE_COLUMNS[:7],
+        usecols=range(7),
+        chunksize=_CSV_CHUNKSIZE,
+    )
+
+
+def parse_aggtrades_csv(raw: bytes | io.BufferedReader) -> pd.DataFrame:
+    parts = [_finalize_aggtrades(chunk) for chunk in _aggtrades_reader(raw)]
+    if not parts:
+        return _empty_ticks()
+    out = pd.concat(parts, ignore_index=True)
+    return out.sort_values("timestamp").reset_index(drop=True)
+
+
+def _concat_tick_parts(parts: list[pd.DataFrame]) -> pd.DataFrame:
+    if not parts:
+        return _empty_ticks()
+    out = pd.concat(parts, ignore_index=True)
+    return out.sort_values("timestamp").reset_index(drop=True)
+
+
+def _iter_zip_aggtrade_frames(zip_path: Path):
+    with zipfile.ZipFile(zip_path) as zf:
+        names = [n for n in zf.namelist() if n.endswith(".csv")]
+        if not names:
+            raise ValueError(f"No CSV inside {zip_path}")
+        with zf.open(names[0]) as fh:
+            for chunk in _aggtrades_reader(fh):
+                yield _finalize_aggtrades(chunk)
 
 
 def download_aggtrades_day(
@@ -169,12 +214,19 @@ def download_aggtrades_day(
 
 
 def load_aggtrades_zip(zip_path: Path) -> pd.DataFrame:
-    with zipfile.ZipFile(zip_path) as zf:
-        names = [n for n in zf.namelist() if n.endswith(".csv")]
-        if not names:
-            raise ValueError(f"No CSV inside {zip_path}")
-        with zf.open(names[0]) as fh:
-            return parse_aggtrades_csv(fh)
+    return _concat_tick_parts(list(_iter_zip_aggtrade_frames(zip_path)))
+
+
+def load_monthly_ticks_by_day(zip_path: Path) -> dict[date, pd.DataFrame]:
+    """Split a monthly Vision zip into UTC days without holding the raw CSV twice."""
+    buckets: dict[date, list[pd.DataFrame]] = {}
+    for frame in _iter_zip_aggtrade_frames(zip_path):
+        if frame.empty:
+            continue
+        day_col = frame["timestamp"].dt.tz_convert("UTC").dt.date
+        for day_key, part in frame.groupby(day_col, sort=False):
+            buckets.setdefault(day_key, []).append(part)
+    return {day_key: _concat_tick_parts(parts) for day_key, parts in buckets.items()}
 
 
 def filter_ticks_day(ticks: pd.DataFrame, day: date) -> pd.DataFrame:
@@ -196,7 +248,7 @@ def load_day_from_archive(
     symbol: str,
     day: date,
     archive_dir: Path,
-    month_cache: dict[tuple[int, int], pd.DataFrame] | None = None,
+    month_cache: dict[tuple[int, int], dict[date, pd.DataFrame]] | None = None,
 ) -> pd.DataFrame:
     """Load one UTC day from local Vision archive (daily zip preferred, else monthly)."""
     daily = daily_archive_path(archive_dir, symbol, day)
@@ -209,13 +261,25 @@ def load_day_from_archive(
             f"No archive ticks for {symbol} on {day}: missing {daily.name} and {monthly.name}"
         )
     key = (day.year, day.month)
-    if month_cache is not None and key in month_cache:
-        month_ticks = month_cache[key]
-    else:
-        month_ticks = load_aggtrades_zip(monthly)
-        if month_cache is not None:
-            month_cache[key] = month_ticks
-    day_ticks = filter_ticks_day(month_ticks, day)
+    if month_cache is not None:
+        if key not in month_cache:
+            month_cache[key] = load_monthly_ticks_by_day(monthly)
+        by_day = month_cache[key]
+        if day not in by_day:
+            raise FileNotFoundError(f"Archive month {monthly.name} has no rows for {day}")
+        day_ticks = by_day.pop(day)
+        if not by_day:
+            del month_cache[key]
+        return day_ticks
+
+    start = pd.Timestamp(day, tz="UTC")
+    end = start + pd.Timedelta(days=1)
+    parts = []
+    for frame in _iter_zip_aggtrade_frames(monthly):
+        part = frame.loc[(frame["timestamp"] >= start) & (frame["timestamp"] < end)]
+        if not part.empty:
+            parts.append(part)
+    day_ticks = _concat_tick_parts(parts)
     if day_ticks.empty:
         raise FileNotFoundError(f"Archive month {monthly.name} has no rows for {day}")
     return day_ticks

@@ -94,10 +94,11 @@ def test_load_day_from_archive_uses_monthly_cache(tmp_path: Path):
     )
     with ZipFile(monthly_dir / "BTCUSDT-aggTrades-2024-01.zip", "w") as zf:
         zf.writestr("BTCUSDT-aggTrades-2024-01.csv", csv)
-    cache: dict[tuple[int, int], pd.DataFrame] = {}
+    cache: dict[tuple[int, int], dict[date, pd.DataFrame]] = {}
     d1 = load_day_from_archive("BTCUSDT", date(2024, 1, 1), tmp_path, month_cache=cache)
+    assert date(2024, 1, 2) in cache[(2024, 1)]
     d2 = load_day_from_archive("BTCUSDT", date(2024, 1, 2), tmp_path, month_cache=cache)
     assert len(d1) == 1 and len(d2) == 1
-    assert (2024, 1) in cache
+    assert (2024, 1) not in cache
     assert list(d1["trade_id"]) == [1]
     assert list(d2["trade_id"]) == [2]

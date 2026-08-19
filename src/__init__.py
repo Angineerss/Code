@@ -1,4 +1,4 @@
-"""Binance tick → imbalance bar → CUSUM → triple-barrier labeling."""
+"""Binance tick → dollar bars → triple-barrier labeling."""
 
 from .config import PipelineConfig
 

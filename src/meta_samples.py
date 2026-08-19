@@ -1,8 +1,8 @@
 """Filters for meta-learning samples (AFML hygiene).
 
 Learning uses IS events only:
-- warmup excluded (EWMA/D seed only; incomplete 365d prior)
-- OOS untouched until final evaluation
+- warmup excluded (EWMA / D seed; listing day has no yesterday)
+- OOS unused in learning (backtest after the model is locked)
 - IS↔OOS boundary purge (+ optional embargo)
 - hyperparams / features / MDA / meta threshold chosen only via CPCV on IS
 """
@@ -40,7 +40,7 @@ def add_split_column(labeled: pd.DataFrame, config: PipelineConfig) -> pd.DataFr
 def boundary_purge_mask(labeled: pd.DataFrame, config: PipelineConfig) -> pd.Series:
     """True = keep. Drop rows whose label end reaches into the pre-OOS purge.
 
-    Purge length = ``resolved_purge_bars`` imbalance bars (policy A: 1τ), so
+    Purge length = ``resolved_purge_bars`` bars (policy A: 1τ), so
     labels cannot sit against the OOS cut.
     """
     if labeled.empty:
@@ -55,8 +55,8 @@ def boundary_purge_mask(labeled: pd.DataFrame, config: PipelineConfig) -> pd.Ser
 def boundary_embargo_mask(labeled: pd.DataFrame, config: PipelineConfig) -> pd.Series:
     """True = keep. Drop IS events inside the pre-OOS embargo window.
 
-    Embargo length = ``resolved_embargo_bars`` imbalance bars (policy A: 1τ),
-    converted via median seconds per imbalance bar.
+    Embargo length = ``resolved_embargo_bars`` bars (policy A: 1τ),
+    converted via median seconds per bar.
     """
     if labeled.empty:
         return pd.Series(dtype=bool)

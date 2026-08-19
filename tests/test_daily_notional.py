@@ -22,13 +22,21 @@ def test_prior_year_window_slides_through_yesterday():
     assert end == date(2024, 1, 15)
 
 
+def test_prior_year_window_one_day_is_yesterday():
+    start, end = prior_year_window(date(2024, 1, 16), lookback_days=1)
+    assert start == date(2024, 1, 15)
+    assert end == date(2024, 1, 15)
+
+
 def test_resolve_ewma_state_defaults_to_previous_day(tmp_path):
     from src.pipeline import resolve_ewma_state_path
 
     prev = tmp_path / "BTCUSDT_2024-01-15_ewma_state.json"
-    prev.write_text("{}")
+    prev.write_text('{"expected_ticks": 1}')
     path = resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 16))
     assert path == prev
+    stub = tmp_path / "BTCUSDT_2024-01-16_ewma_state.json"
+    stub.write_text("{}")
     assert resolve_ewma_state_path(tmp_path, "BTCUSDT", date(2024, 1, 17)) is None
 
 
@@ -99,6 +107,7 @@ def test_prior_year_notional_clamps_to_listing(monkeypatch, tmp_path):
     out = mod.prior_year_notional(
         "BTCUSDT",
         date(2018, 1, 1),
+        lookback_days=365,
         listing_date=date(2017, 8, 17),
         cache_dir=tmp_path,
     )

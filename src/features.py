@@ -1,12 +1,9 @@
 """Meta-label features at event time (no look-ahead).
 
-Hypothesis strength:
-- flow_strength: |θ| / E[θ] on the event bar
-- cusum_excess_ratio: |S| / h at the CUSUM crossing (before reset)
-
-Context (locked subset):
-- tick_rel: tick_count / E[T] at bar close (E[T] before EWMA update)
-- sigma: same EWM bar-log-return vol used for barriers
+- flow_strength [선정]: |θ| / that bar's quote. Dollar bars close on T$,
+  so strength uses the same dollar scale (not E[θ] or E[T]).
+- sigma [임시값]: one EWM series (#2 · #23). Model input and pt/sl wall
+  width. Length is still a placeholder.
 """
 
 from __future__ import annotations
@@ -18,8 +15,6 @@ from .barriers import barrier_volatility
 
 META_FEATURE_NAMES = (
     "flow_strength",
-    "cusum_excess_ratio",
-    "tick_rel",
     "sigma",
 )
 
@@ -38,24 +33,13 @@ def attach_meta_features(
 
     by_id = bars.set_index("bar_id")
     flow = out["bar_id"].map(by_id["signed_flow"]).to_numpy(dtype=float)
-    bar_thr = out["bar_id"].map(by_id["threshold"]).to_numpy(dtype=float)
+    if "quote_volume" in bars.columns:
+        denom = out["bar_id"].map(by_id["quote_volume"]).to_numpy(dtype=float)
+    else:
+        denom = out["bar_id"].map(by_id["threshold"]).to_numpy(dtype=float)
     with np.errstate(divide="ignore", invalid="ignore"):
-        strength = np.abs(flow) / np.maximum(np.abs(bar_thr), 1e-12)
+        strength = np.abs(flow) / np.maximum(np.abs(denom), 1e-12)
     out["flow_strength"] = strength
-
-    if "cusum_excess_ratio" in out.columns:
-        out["cusum_excess_ratio"] = pd.to_numeric(out["cusum_excess_ratio"], errors="coerce")
-    else:
-        out["cusum_excess_ratio"] = np.nan
-
-    ticks = out["bar_id"].map(by_id["tick_count"]).to_numpy(dtype=float)
-    if "expected_ticks" in by_id.columns:
-        et = out["bar_id"].map(by_id["expected_ticks"]).to_numpy(dtype=float)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            out["tick_rel"] = ticks / np.maximum(et, 1e-12)
-    else:
-        # Older bars CSVs omit E[T]; tick_rel cannot be formed — leave NaN.
-        out["tick_rel"] = np.nan
 
     # Prefer barrier-computed sigma on labeled rows; otherwise match barrier formula.
     if "sigma" in out.columns and pd.to_numeric(out["sigma"], errors="coerce").notna().all():
