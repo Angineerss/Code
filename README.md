@@ -1,4 +1,5 @@
-# Binance tick → 달러 바 → 트리플 베리어
+# DOLLER IMBALANCE TRADE PROGRAM
+핵심 순서 : Binance tick → 달러 바 → 트리플 베리어
 
 바이낸스 현물 `BTCUSDT` **aggTrades(틱)** 을 **달러 바**로 자른 뒤, 그 바의 달러 불균형 방향으로 베팅하고 트리플 베리어 메타 라벨을 붙입니다. 서버·DB·웹 UI는 없고, `src/` CLI와 `scripts/` 가 전부입니다.
 
