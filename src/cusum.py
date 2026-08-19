@@ -1,5 +1,6 @@
 """Dollar-bar closes are the default event times.
 
+``event_mode='every_bar'`` keeps every close so the primary can maximize recall.
 CUSUM remains available as ``event_mode='cusum'`` (contrast only).
 ``bar_type='dollar_imbalance'`` is the original clock (control).
 Direction comes from the primary model (sign of bar θ).

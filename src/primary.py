@@ -11,8 +11,9 @@ from .config import PipelineConfig, PrimaryType
 def apply_primary(bars: pd.DataFrame, events: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
     """Attach primary ``side`` from the dollar-imbalance formula, then gates.
 
-    Default primary is ``sign(signed_flow)`` = sign(θ) on the dollar bar.
-    Weak bars stay in (high recall). ``require_strong_imbalance`` is contrast-only.
+    Default primary is ``sign(signed_flow)`` = sign(θ) on the dollar bar. [선정]
+    Weak bars stay in: AFML triple-barrier primary maximizes recall.
+    ``require_strong_imbalance`` is contrast-only.
     """
     if events.empty:
         out = events.copy()

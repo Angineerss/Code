@@ -5,6 +5,10 @@ Re-labels existing IS events for each (pt, sl) × τ cell, then scores the same
 RandomForest meta setup as ``compare_vertical_tau.py`` (uniqueness weights,
 CPCV, purge/embargo = 1τ).
 
+Mean CPCV logloss is the score we compute to see whether the meta
+P(take-profit first) matched the labels (same as compare_vertical_tau.py).
+[선정] AFML recommends logloss for scoring predicted probabilities.
+
 Does **not** touch OOS. Requires precomputed daily bars + events under a run
 root. Default multiplier: 1 (operating pt=sl=1σ). Pass ``--taus`` for a joint grid;
 otherwise a single ``--tau`` (config default) is used.

@@ -1,4 +1,4 @@
-"""Prior-year daily quote notional for the imbalance-bar threshold."""
+"""Daily quote notional for daily_T$ (어제 조각; D = yesterday quote / divisor)."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class PriorYearNotional:
     threshold: float
 
 
-def prior_year_window(as_of: date, lookback_days: int = 365) -> tuple[date, date]:
+def prior_year_window(as_of: date, lookback_days: int = 1) -> tuple[date, date]:
     """Sliding UTC window ending yesterday: [as_of - lookback, as_of - 1d]."""
     if lookback_days < 1:
         raise ValueError("lookback_days must be >= 1")
@@ -52,6 +52,7 @@ def prior_year_window(as_of: date, lookback_days: int = 365) -> tuple[date, date
 
 
 def threshold_from_average(average_daily_notional: float, divisor: int = 650) -> float:
+    """daily_T$ (어제 조각): D = average daily quote / divisor. Default 650 is [선정] (Method B)."""
     if average_daily_notional <= 0:
         raise ValueError("average daily notional must be positive")
     return float(average_daily_notional) / float(divisor)
@@ -178,7 +179,7 @@ def prior_year_notional(
     symbol: str,
     as_of: date,
     divisor: int = 650,
-    lookback_days: int = 365,
+    lookback_days: int = 1,
     cache_dir: Path | None = None,
     listing_date: date | None = None,
 ) -> PriorYearNotional:
@@ -191,7 +192,7 @@ def prior_year_notional(
     if listing_date is not None:
         start = max(start, listing_date)
     if start > end:
-        # Listing day (or earlier): no prior UTC day exists. Bootstrap D from as_of
+        # Listing day (or earlier): no prior UTC day exists. Bootstrap daily_T$ from as_of
         # itself so the first archive day can still build bars (warmup only).
         start = end = as_of
     daily = load_or_fetch_daily_quote_notional(symbol, start, end, cache_dir)

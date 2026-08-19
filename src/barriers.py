@@ -34,8 +34,13 @@ def apply_triple_barrier(
 ) -> pd.DataFrame:
     """Label each event by first touch of TP / SL / vertical barrier.
 
-    ``events.side`` is the primary bet. Meta target ``y_meta`` is 1 only on
-    take-profit. Stop-loss, timeout, and simultaneous touches are 0.
+    ``events.side`` is the primary bet. [선정] ``y_meta`` is 1 only when a
+    *later* bar hits take-profit and does not also hit stop-loss on that
+    same bar. Same-bar both walls, stop-loss, and timeout are 0 — a bar
+    has only one high and one low, so intra-bar order is unknown.
+
+    [선정] Path uses bar high/low (not close-only) to see whether that bar
+    touched a wall.
     """
     if events.empty or bars.empty:
         return events.assign(
@@ -73,6 +78,7 @@ def apply_triple_barrier(
             hit_tp = high[j] >= pt_level if side > 0 else low[j] <= pt_level
             hit_sl = low[j] <= sl_level if side > 0 else high[j] >= sl_level
             if hit_tp and hit_sl:
+                # Same bar: cannot tell which wall came first.
                 touch_type = "simultaneous"
                 exit_pos = j
                 break

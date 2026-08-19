@@ -1,8 +1,8 @@
 """Filters for meta-learning samples (AFML hygiene).
 
 Learning uses IS events only:
-- warmup excluded (EWMA/D seed only; incomplete 365d prior)
-- OOS untouched until final evaluation
+- warmup excluded (EWMA / D seed; listing day has no yesterday)
+- OOS unused in learning (backtest after the model is locked)
 - IS↔OOS boundary purge (+ optional embargo)
 - hyperparams / features / MDA / meta threshold chosen only via CPCV on IS
 """

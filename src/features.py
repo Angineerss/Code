@@ -1,13 +1,9 @@
 """Meta-label features at event time (no look-ahead).
 
-Hypothesis strength:
-- flow_strength: |θ| / that bar's quote notional (one-sided fraction of the bar's dollars)
-
-Context:
-- sigma: same EWM bar-log-return vol used for barriers
-
-E[T] is not a meta feature. It is control-clock only (dollar_imbalance close / max_ticks).
-Price-run confirmation (|S|/h) is not a meta feature.
+- flow_strength [선정]: |θ| / that bar's quote. Dollar bars close on T$,
+  so strength uses the same dollar scale (not E[θ] or E[T]).
+- sigma [임시값]: one EWM series (#2 · #23). Model input and pt/sl wall
+  width. Length is still a placeholder.
 """
 
 from __future__ import annotations

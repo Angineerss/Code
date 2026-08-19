@@ -21,7 +21,8 @@ def test_meta_feature_names_locked_set():
     assert PipelineConfig().require_cusum_flow_agree is False
     assert PipelineConfig().pt == 1.0
     assert PipelineConfig().sl == 1.0
-    assert PipelineConfig().vertical_bars == 20
+    assert PipelineConfig().imbalance_lookback_days == 1
+    assert PipelineConfig().imbalance_divisor == 650
     assert PipelineConfig(bar_type="dollar_imbalance").bar_type == "dollar_imbalance"
 
 

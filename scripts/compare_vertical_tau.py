@@ -5,6 +5,10 @@ Re-labels existing IS events for each τ on a continuous multi-day bar stream,
 applies uniqueness sample weights, and scores RandomForest meta models under
 combinatorial purged CV with purge/embargo = 1τ bars (policy A).
 
+Mean CPCV logloss is the score we compute to see whether the meta
+P(take-profit first) matched the labels. It is a result, not a bar knob.
+[선정] AFML recommends logloss for scoring predicted probabilities.
+
 Does **not** touch OOS. Requires precomputed daily bars + events under a run
 root (warmup+IS only). File layout matches ``scripts/run_range.py``:
 ``{SYMBOL}_{YYYY-MM-DD}_{bars,events}.csv``.
@@ -200,6 +204,7 @@ def score_tau(labeled: pd.DataFrame, config: PipelineConfig) -> dict:
         if len(np.unique(y[tr])) < 2:
             continue
         clf = RandomForestClassifier(
+            # Initial placeholder only; not a locked hyperparameter.
             n_estimators=200,
             max_depth=6,
             min_samples_leaf=10,

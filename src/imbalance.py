@@ -2,8 +2,11 @@
 
 Default ``bar_type='dollar'`` closes on cumulative quote vs T$.
 Recorded strength scale is |θ| / that bar's quote (no E[T]).
-``bar_type='dollar_imbalance'`` is the original control clock (|θ| ≥ E[θ]),
-where E[θ] = E[T] × |2b-1| × E[size].
+``bar_type='dollar_imbalance'`` is the original control clock (|θ| ≥ E[θ]).
+AFML [선정]: ``E[θ_T] ≈ E[T] × |2b-1| × E[size]``. Tick imbalance is
+``E[size]=1``, i.e. ``E[θ_T] ≈ E[T] × |2b-1|``. ``|2b-1|`` is clipped to
+``[0.05, 0.15]`` [선정] so E[θ] does not collapse at ``b=0.5``. Force-close
+after a multiple of E[T] [선정] if |θ| never hits E[θ]; the 2.5 is [임시값].
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ BAR_COLUMNS = [
 
 @dataclass(frozen=True)
 class ImbalanceSeed:
-    """Prior-year D = mean(daily quote notional) / 650; E[θ] then EWMA-updates."""
+    """daily_T$ (어제 조각): D = yesterday quote / divisor (650 [선정], lookback=1); then T$ / E[θ] EWMA."""
 
     expected_imbalance: float
     expected_size: float | None = None
@@ -208,6 +211,7 @@ def build_imbalance_bars(
     rows: list[list[object]] = []
 
     def afml_theta() -> float:
+        # E[θ_T] ≈ E[T] × |2b-1| × E[size]  (AFML; [선정] control close)
         frac = abs(2.0 * b - 1.0)
         frac = _clip_imbalance_frac(frac, config) if frac > 0 else config.min_abs_2p1
         size = expected_size if np.isfinite(expected_size) else 1.0
@@ -297,7 +301,7 @@ def build_dollar_bars(
     """Sample bars when cumulative quote notional hits T$ (dollar clock).
 
     Recorded ``threshold`` is |2b-1| × that bar's quote, not AFML E[θ].
-    T$ is seeded by D = prior-year mean daily quote / divisor.
+    T$ is seeded by daily_T$ (어제 조각; D = yesterday quote / divisor, 650 [선정]).
     E[T] is kept in EWMA state for file compatibility but is not updated
     and does not set max_ticks or strength.
     """
