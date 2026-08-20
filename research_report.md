@@ -91,17 +91,24 @@ Advances in Financial Machine Learning (Marcos López de Prado, 2018)은 방법�
 
 ### 5.1 Raw 데이터
 
-- 기간: 2017-08-17 (상장일) ~ 2026-08-13
-- 출처: Binance Vision (BTCUSDT aggTrades)
-- 주요 가공: timestamp → UTC datetime, is_buyer_maker → side (+1/−1), quote_qty = price × qty
+Binance Vision에서 BTCUSDT aggTrades를 다운로드했다.  
+주소: https://data.binance.vision/?prefix=data/spot/monthly/aggTrades/BTCUSDT/
 
-### 5.2 데이터 기간 구분
+aggTrades는 같은 가격, 같은 방향(taker)으로 연속 체결된 개별 거래를 하나로 묶어 놓은 데이터다.  
+개별 틱보다 다루기 편해서 이 데이터를 사용했다.
+
+### 5.2 데이터 기간 구분 (Warmup / IS / OOS)
+
+실무에서 흔히 쓰는 8:2 비율에 맞춰 기간을 나눴다.
 
 | 구분   | 기간                      | 역할                          |
 |--------|---------------------------|-------------------------------|
 | Warmup | 2017-08-17 ~ 2018-08-16  | EWMA·daily_T$ 시드용         |
 | IS     | 2018-08-17 ~ 2024-12-31  | 학습 및 CPCV 검증            |
 | OOS    | 2025-01-01 ~ 2026-08-13  | 최종 평가 전용 (학습 미사용) |
+
+IS 안에서는 CPCV를 사용해 학습 데이터와 교차검증 데이터를 나눴다.  
+IS와 OOS 사이에는 엄격하게 Purge와 Embargo를 적용해서 학습 정보가 OOS로 새지 않게 했다.
 
 ---
 
